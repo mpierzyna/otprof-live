@@ -6,3 +6,4 @@ __pycache__/
 /.deployed
 /.update.lock
 /update.log
+/docker-compose.override.yml

@@ -1,0 +1,18 @@
+# OTProf live: nginx serving the built app and the forecast data. Settings in .env (see README, Deploy).
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    ports: 
+      - "8080:8080"
+    volumes:
+      - ./data:/usr/share/nginx/html/data:ro
+    read_only: true
+    # nginx needs writable cache and pid dirs; keep them in memory
+    tmpfs:
+      - /var/cache/nginx
+      - /run
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 1m
+      timeout: 5s

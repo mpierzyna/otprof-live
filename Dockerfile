@@ -7,6 +7,6 @@ RUN npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm run build
 
-FROM nginxinc/nginx-unprivileged:alpine
-COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+FROM nginx:1.31.8
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/web/dist /usr/share/nginx/html
