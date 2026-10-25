@@ -1,0 +1,43 @@
+{
+  "name": "otprof-live",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "basemap": "node scripts/make_basemap.mjs",
+    "predev": "node scripts/make_basemap.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/make_basemap.mjs",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fontsource/roboto": "^5.3.0",
+    "d3-array": "^3.2.4",
+    "d3-axis": "^3.0.0",
+    "d3-format": "^3.1.2",
+    "d3-scale": "^4.0.2",
+    "d3-scale-chromatic": "^3.1.0",
+    "d3-selection": "^3.0.0",
+    "d3-time-format": "^4.1.0",
+    "dompurify": "^3.4.17",
+    "maplibre-gl": "^6.15.0",
+    "marked": "^18.1.1"
+  },
+  "devDependencies": {
+    "@types/d3-array": "^3.2.2",
+    "@types/d3-axis": "^3.0.6",
+    "@types/d3-format": "^3.0.4",
+    "@types/d3-scale": "^4.0.9",
+    "@types/d3-scale-chromatic": "^3.1.0",
+    "@types/d3-selection": "^3.0.12",
+    "@types/d3-time-format": "^4.0.3",
+    "@types/geojson": "^7946.0.16",
+    "@types/node": "^26.6.5",
+    "@types/topojson-client": "^3.1.5",
+    "topojson-client": "^3.1.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "world-atlas": "^2.0.2"
+  }
+}

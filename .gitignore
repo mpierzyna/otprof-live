@@ -1,0 +1,8 @@
+.dev/
+dev-data/
+__pycache__/
+/data/
+/.env
+/.deployed
+/.update.lock
+/update.log

@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OTProf live</title>
+    <link rel="icon" href="data:," />
+  </head>
+  <body>
+    <header class="appbar">
+      <div class="toolbar">
+        <div class="brand">
+          <h1 id="title">OTProf live</h1>
+          <span id="subtitle"></span>
+        </div>
+        <div id="var-switch" class="toggle-group" role="group" aria-label="Variable"></div>
+        <label class="appbar-select">
+          <span>Forecast</span>
+          <select id="cycle-select"></select>
+        </label>
+      </div>
+      <div id="progress" class="progress" role="progressbar" aria-label="Loading lead times" hidden><div></div></div>
+    </header>
+
+    <main class="layout">
+      <aside id="disclaimer" class="alert alert-error" role="note" hidden>
+        <svg class="alert-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
+        </svg>
+        <div id="disclaimer-text" class="alert-message markdown"></div>
+      </aside>
+
+      <section class="card map-panel" aria-label="Map">
+        <div id="map"></div>
+        <div id="colorbar" class="colorbar overlay"></div>
+        <div id="map-tooltip" class="tooltip" hidden></div>
+      </section>
+
+      <section class="card profile-panel" aria-label="Vertical profile">
+        <div class="card-header">
+          <h2 id="profile-title">Profile</h2>
+          <div id="profile-sub" class="subheader"></div>
+          <div id="column-values" class="chips"></div>
+        </div>
+        <div id="profile" class="plot-host"></div>
+      </section>
+
+      <section class="card controls" aria-label="Time and height">
+        <button id="play" class="fab" type="button" aria-label="Play" title="Play / pause (space)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path id="play-icon" d="M8 5v14l11-7z" /></svg>
+        </button>
+        <div class="slider">
+          <label for="time">Time</label>
+          <input id="time" type="range" min="0" max="0" step="1" value="0" />
+          <output id="time-label"></output>
+        </div>
+        <div class="slider" id="height-group">
+          <label for="height">Height</label>
+          <input id="height" type="range" min="0" max="0" step="1" value="0" />
+          <output id="height-label"></output>
+        </div>
+        <div class="options">
+          <label class="outlined-select" title="Playback speed">
+            <span>Speed</span>
+            <select id="speed">
+              <option value="2">0.5×</option>
+              <option value="1" selected>1×</option>
+              <option value="0.5">2×</option>
+              <option value="0.25">4×</option>
+            </select>
+          </label>
+          <label class="switch" title="Height axis of the profile and time-height plots">
+            <input id="log-height" type="checkbox" role="switch" /> Log height
+          </label>
+          <label class="switch" title="Map colour scale per height (lcn2 spans orders of magnitude over the column)">
+            <input id="colour-z" type="checkbox" role="switch" /> Colour scale per height
+          </label>
+        </div>
+      </section>
+
+      <section class="card th-panel" aria-label="Time-height plot">
+        <div class="card-header row">
+          <h2 id="th-title">Forecast at the selected point</h2>
+          <span id="th-hover" class="subheader"></span>
+        </div>
+        <div id="timeheight"></div>
+        <div id="th-colorbar" class="colorbar"></div>
+      </section>
+
+      <section class="card notes-panel" aria-label="Notes">
+        <article id="notes" class="markdown"></article>
+        <dl id="info" class="info"></dl>
+      </section>
+    </main>
+
+    <footer class="footer">
+      Keys: space play/pause · ← → time · ↑ ↓ height · click the map, profile or time-height plot to select
+    </footer>
+    <div id="error" class="snackbar" hidden></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

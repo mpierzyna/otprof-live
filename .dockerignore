@@ -1,0 +1,6 @@
+**
+!web/
+!deploy/nginx.conf
+web/node_modules/
+web/dist/
+web/public/basemap/
