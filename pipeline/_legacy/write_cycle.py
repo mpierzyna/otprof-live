@@ -39,7 +39,9 @@ def write_cycle(
         vals = da.transpose(*dims).values.astype(np.float64)
         lo, hi = float(np.nanmin(vals)), float(np.nanmax(vals))
         scale = (hi - lo) / (FILL - 1) or 1.0
-        stored = np.where(np.isnan(vals), FILL, np.round((vals - lo) / scale)).astype("<u2")
+        stored = np.where(np.isnan(vals), FILL, np.round((vals - lo) / scale)).astype(
+            "<u2"
+        )
         var = {
             "long_name": da.attrs.get("long_name", name),
             "units": da.attrs.get("units", ""),
@@ -51,7 +53,9 @@ def write_cycle(
             "valid_range": [lo, hi],
             "display_range": [float(q) for q in np.nanpercentile(vals, [1, 99])],
         }
-        if "z" in dims:  # colour range per height: lcn2 spans orders of magnitude over the column
+        if (
+            "z" in dims
+        ):  # colour range per height: lcn2 spans orders of magnitude over the column
             q = np.nanpercentile(vals, [1, 99], axis=(0, 2, 3))
             var["display_range_z"] = [[float(a), float(b)] for a, b in q.T]
             var["files"] = [f"{name}_f{int(h):03d}.bin" for h in ds["lead"].values]
@@ -82,5 +86,7 @@ def write_cycle(
     index_file = data_root / "index.json"
     cycles = json.loads(index_file.read_text())["cycles"] if index_file.exists() else []
     cycles = sorted({*cycles, cycle_id}, reverse=True)[:keep]
-    index_file.write_text(json.dumps({"format": FORMAT, "cycles": cycles, "latest": cycles[0]}, indent=1))
+    index_file.write_text(
+        json.dumps({"format": FORMAT, "cycles": cycles, "latest": cycles[0]}, indent=1)
+    )
     return out

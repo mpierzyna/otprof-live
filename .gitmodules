@@ -1,0 +1,3 @@
+[submodule "pipeline/otprof"]
+	path = pipeline/otprof
+	url = git@github.com:mpierzyna/otprof.git
