@@ -1,14 +1,16 @@
 """Prepare directory structure for the pipeline."""
 
 import datetime
-from shared import logger, RUNNING_DIR, DATA_ROOT
+import sys
+
+from shared import DATA_ROOT, RUNNING_DIR, logger
 
 if RUNNING_DIR.exists():
     logger.warning(
         "Running directory already exists. "
         "Either pipeline crashed or didn't finish. Won't create new. Exiting."
     )
-    exit(0)
+    sys.exit(0)
 
 
 # Create new working dir

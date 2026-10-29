@@ -175,3 +175,8 @@ pyrightconfig.json
 
 # End of https://www.toptal.com/developers/gitignore/api/python
 data/
+# rclone remote config (credentials)
+.rclone.conf
+
+# web app data written by step 3
+data_webui/

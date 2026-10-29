@@ -19,13 +19,13 @@ with DAG("otprof_gfs") as dag:
     )
 
     step_2 = BashOperator(
-        task_id="standardize",
-        bash_command=f"cd {CODE_ROOT} && uv run step_2_standardize.py",
+        task_id="predict",
+        bash_command=f"cd {CODE_ROOT} && uv run step_2_predict.py",
     )
 
     step_3 = BashOperator(
-        task_id="predict",
-        bash_command=f"cd {CODE_ROOT} && uv run step_3_predict.py",
+        task_id="convert",
+        bash_command=f"cd {CODE_ROOT} && uv run step_3_convert.py",
     )
 
     step_4 = BashOperator(
