@@ -9,7 +9,7 @@ import { loadConfig } from "./config";
 import { Climatology, Cycle, type Dataset, loadIndex, nearestIndex } from "./data";
 import { MapView } from "./map";
 import { renderNotes } from "./notes";
-import { type BoxStats, DiurnalView, formatHeight, ProfileView, TimeHeightView } from "./plots";
+import { type BoxStats, DiurnalView, formatHeight, ProfileView, TimeHeightView, type Violins } from "./plots";
 import { type HashState, type Mode, parseHash, resolve, type State, Store, toHash } from "./state";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -28,6 +28,18 @@ const STAT_LABELS: Record<string, string> = {
   lmean: "Mean of linear Cₙ²",
 };
 const statLabel = (stat: string) => STAT_LABELS[stat] ?? stat;
+/** Legend items into `el`: [swatch class (legend i.<class> in style.css), label]. */
+function drawLegend(el: HTMLElement, items: [string, string][]) {
+  el.replaceChildren(
+    ...items.map(([cls, text]) => {
+      const item = document.createElement("span");
+      const swatch = document.createElement("i");
+      swatch.className = cls;
+      item.append(swatch, text);
+      return item;
+    }),
+  );
+}
 /** The keys of `h` that are set (so that spreading it does not clear others). */
 const defined = (h: HashState): HashState => Object.fromEntries(Object.entries(h).filter(([, v]) => v !== undefined));
 const ICON_PLAY = "M8 5v14l11-7z";
@@ -52,7 +64,8 @@ async function main() {
   let cycle: Cycle | undefined;
   let clim: Climatology | undefined;
   const openCycle = async (id: string) => (cycle = await Cycle.open(config.dataUrl, id));
-  const openClim = async () => (clim ??= await Climatology.open(climUrl!));
+  let climLoad: Promise<Climatology> | undefined;
+  const openClim = () => (climLoad ??= Climatology.open(climUrl!).then((c) => (clim = c)));
   const firstCycle = hash.cycle && index.cycles.includes(hash.cycle) ? hash.cycle : (index.latest ?? index.cycles[0]);
   let data: Dataset = hash.mode === "clim" && climUrl ? await openClim() : await openCycle(firstCycle);
   const climOf = (d: Dataset) => (d instanceof Climatology ? d : undefined);
@@ -91,12 +104,32 @@ async function main() {
     if (perHeight && !vc(name).range && perZ?.[zi]) return perZ[zi];
     return globalRange(name);
   };
-  /** Profile axis: the data range of a forecast, the 5th to 95th percentile range of the climatology. */
-  const profileDomain = (name: string): [number, number] => {
-    const v = data.variables[name];
+  /** Profile axis: the 5th to 95th percentile range of a climatology variable, else its data range. */
+  const profileDomain = (d: Dataset, name: string): [number, number] => {
+    const v = d.variables[name];
     const [p5, p95] = [v.display_ranges?.p5, v.display_ranges?.p95];
     if (p5 && p95) return [p5[0], p95[1]];
     return v.valid_range ?? globalRange(name);
+  };
+  /** The climatology behind a forecast profile: month of the forecast time, nearest climatology cell. Undefined while
+   * it loads (the profile is drawn again when it is there) or without a climatology. */
+  const climBehind = (name: string, s: State) => {
+    if (!(data instanceof Cycle) || !clim || !clim.profileVars.includes(name) || s.cell < 0) return undefined;
+    const c = clim;
+    const cell = c.nearestCell(data.lat[Math.floor(s.cell / data.nlon)], data.lon[s.cell % data.nlon]);
+    const step = nearestIndex(c.meta.months, data.times[s.lead].getUTCMonth() + 1);
+    if (cell < 0) return undefined;
+    if (!c.hasStep(step)) {
+      void c.loadStep(step).then(() => data instanceof Cycle && renderProfile());
+      return undefined;
+    }
+    const band = (lo: string, hi: string) => ({ z: c.z, lo: c.profile(name, step, cell, lo)!, hi: c.profile(name, step, cell, hi)! }); // fmt: skip
+    return {
+      bands: [band("p5", "p95"), band("p25", "p75")],
+      reference: { z: c.z, values: c.profile(name, step, cell, "median")! },
+      month: fmtMonth(c.times[step]),
+      domain: profileDomain(c, name),
+    };
   };
   const profileVar = (s: State) => (data.profileVars.includes(s.variable) ? s.variable : data.profileVars[0]);
   const stepLabel = (step: number) =>
@@ -112,7 +145,8 @@ async function main() {
     const cl = climOf(c);
     return {
       variable: d.variable && names.includes(d.variable) ? d.variable : names[0],
-      lead: cl ? nearestIndex(cl.meta.months, new Date().getUTCMonth() + 1) : 0, // climatology: this month
+      // Now: the climatology of this month, the forecast's lead time closest to the current time
+      lead: cl ? nearestIndex(cl.meta.months, new Date().getUTCMonth() + 1) : nearestIndex(c.times.map((t) => t.getTime()), Date.now()), // fmt: skip
       zi: c.nz ? nearestIndex(c.z, d.z ?? 100) : 0,
       cell: cell >= 0 ? cell : c.nearestCell(c.lat[c.nlat >> 1], c.lon[c.nlon >> 1]),
       stat: "median",
@@ -123,6 +157,7 @@ async function main() {
     cycle: firstCycle,
     ...resolve(hash, data, fallback(data)),
     playing: false,
+    diurnalKind: "box",
     heightScale: config.heightScale,
     colourPerHeight: config.colourPerHeight,
   });
@@ -185,6 +220,8 @@ async function main() {
   cycleSelect.addEventListener("change", () => switchCycle(cycleSelect.value, physical()));
   statSelect.addEventListener("change", () => store.set({ stat: statSelect.value }));
   $("mode-tabs").hidden = !climUrl;
+  for (const b of $("diurnal-kind").querySelectorAll<HTMLButtonElement>("button"))
+    b.addEventListener("click", () => store.set({ diurnalKind: b.dataset.kind as State["diurnalKind"] }));
   for (const b of $("mode-tabs").querySelectorAll<HTMLButtonElement>("button"))
     b.addEventListener("click", () => void switchMode(b.dataset.mode as Mode));
 
@@ -284,19 +321,36 @@ async function main() {
       chip.textContent = `${label(name)} ${fmt(name)(data.value(name, s.lead, 0, s.cell, statFor(name)))}${u}`;
       values.append(chip);
     }
-    if (!pv || s.cell < 0) return;
-    // Context: the range over the forecast, the 5th–95th and 25th–75th percentiles of the climatology
-    const band = (lo: string, hi: string) => [data.profile(pv, s.lead, s.cell, lo), data.profile(pv, s.lead, s.cell, hi)]; // fmt: skip
-    const bands = c
-      ? [band("p5", "p95"), band("p25", "p75")].filter((b): b is [Float32Array, Float32Array] => !!b[0] && !!b[1])
-      : [data.envelope(pv, s.cell)];
+    if (!pv || s.cell < 0) return drawLegend($("profile-legend"), []);
+    // Context: the climatology (25th–75th, 5th–95th percentile, median), of the forecast's month behind a forecast
+    const percentiles: [string, string][] = [["band-inner", "25th–75th percentile"], ["band", "5th–95th percentile"]];
+    let bands: { z: number[]; lo: Float32Array; hi: Float32Array }[] = [];
+    let reference: { z: number[]; values: Float32Array } | undefined;
+    let xDomain = profileDomain(data, pv);
+    if (c) {
+      const band = (lo: string, hi: string) => ({ z: data.z, lo: data.profile(pv, s.lead, s.cell, lo), hi: data.profile(pv, s.lead, s.cell, hi) }); // fmt: skip
+      bands = [band("p5", "p95"), band("p25", "p75")].filter((b) => b.lo && b.hi) as typeof bands;
+      drawLegend($("profile-legend"), [["", statLabel(stat!)], ...percentiles]);
+    } else {
+      const behind = climBehind(pv, s);
+      if (behind) {
+        ({ bands, reference } = behind);
+        xDomain = [Math.min(xDomain[0], behind.domain[0]), Math.max(xDomain[1], behind.domain[1])];
+      }
+      drawLegend($("profile-legend"), [
+        ["live", "Forecast"],
+        ...(behind ? ([["dashed", `Climatology ${behind.month}: median`], ...percentiles] as [string, string][]) : []),
+      ]);
+    }
     profileView.draw({
       z: data.z,
       profile: data.profile(pv, s.lead, s.cell, stat),
+      live: !c,
       bands,
+      reference,
       zi: s.zi,
       heightScale: s.heightScale,
-      xDomain: profileDomain(pv),
+      xDomain,
       xLabel: fullLabel(pv),
       fmt: fmt(pv),
     });
@@ -335,12 +389,32 @@ async function main() {
     const c = climOf(data);
     if (!c || s.cell < 0) return;
     $("diurnal-title").textContent = `Diurnal cycle in ${fmtMonth(c.times[s.lead])} at ${cellLabel(s.cell)}`;
+    const kind = c.violinVars.length ? s.diurnalKind : "box";
+    $("diurnal-kind").hidden = !c.violinVars.length;
+    for (const b of $("diurnal-kind").querySelectorAll<HTMLButtonElement>("button"))
+      b.setAttribute("aria-pressed", String(b.dataset.kind === kind));
+    drawLegend(
+      $("diurnal-legend"),
+      kind === "violin"
+        ? [["violin", "Distribution"], ["box", "25th–75th percentile"], ["", "Median"], ["dot", "Mean"]]
+        : [["box", "25th–75th percentile"], ["whisker", "5th–95th percentile"], ["", "Median"], ["dot", "Mean"]],
+    );
+    if (kind === "box") return drawDiurnal(c, kind);
+    // Violins: drawn once the month is loaded (at once if it is), the previous plot stays until then
+    const lead = s.lead;
+    const current = () => climOf(data) === c && st().lead === lead && st().diurnalKind === "violin";
+    void c.loadViolins(lead).then(() => current() && drawDiurnal(c, "violin"));
+  }
+  function drawDiurnal(c: Climatology, kind: "box" | "violin") {
+    const s = st();
     diurnalView.draw(
       c.meta.hours,
+      kind,
       c.diurnalVars.map((name) => ({
         label: fullLabel(name),
         fmt: fmt(name),
         boxes: c.diurnal(name, s.lead, s.cell) as BoxStats | undefined,
+        violins: c.violin(name, s.lead, s.cell) as Violins | undefined,
       })),
     );
   }
@@ -405,7 +479,7 @@ async function main() {
     if (any("variable", "lead", "zi", "cell", "heightScale", "stat")) renderProfile();
     if (any("variable", "cell", "heightScale", "stat")) renderTimeHeight();
     else if (any("lead", "zi")) thView.setCursor(data, s.lead, s.zi);
-    if (any("lead", "cell")) renderDiurnal();
+    if (any("lead", "cell", "diurnalKind")) renderDiurnal();
     renderControls();
     if (any("playing")) schedulePlay();
     history.replaceState(null, "", toHash(s, data));
@@ -509,6 +583,8 @@ async function main() {
   await data.loadStep(st().lead);
   renderAll();
   void data.loadAll(st().lead);
+  // The climatology behind the forecast profile
+  if (climUrl && !clim) void openClim().then(() => data instanceof Cycle && renderProfile());
 }
 
 main().catch((e: unknown) => {

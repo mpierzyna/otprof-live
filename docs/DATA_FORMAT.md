@@ -134,6 +134,7 @@ Per variable, in addition to the cycle keys:
 | `file` | alternatively one file `[month][stat][lat][lon]` (variables without `z`). |
 | `display_ranges`, `display_ranges_z` | per statistic, the colour scale range (and per height), over all months. |
 | `diurnal` | optional diurnal cycle, `[month][hour][stat][lat][lon]` with its own `stats`, same encoding as the variable. |
+| `violin` | optional distributions of the diurnal cycle for violin plots: densities scaled to a maximum of 1 per month, hour and cell at the bin centres `x` of the variable, with their own encoding (`dtype` `uint8`, `scale`, `offset`, `fill`); `files`: one per month, each `[lat][lon][hour][x]` (each violin contiguous: compresses well). The app loads the month shown when the violins are on (~0.6 MB per variable and month, ~0.13 MB with gzip). |
 
 ## Serving
 

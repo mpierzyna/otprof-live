@@ -56,7 +56,11 @@ uv run step_5_convert_webui.py              # 4_climatology → WEBUI_DATA/clima
   (`grid_<grouping>.nc`) and pooled over the domain (`domain_<grouping>.nc`), for the groupings `all`, `season`,
   `month` and `hour` (UTC). The diurnal cycle of `r0`, `si2`, `lsi2` per grid point and calendar month is in
   `grid_month_hour.nc` (dims month, hour, stat, lat, lon), with box-plot statistics: `n`, `mean`, `p5`, `p25`,
-  `median`, `p75`, `p95`, `iqr` (box p25 .. p75, whiskers p5 .. p95). Run again when more months are predicted; the months used are in the attribute `months`.
+  `median`, `p75`, `p95`, `iqr` (box p25 .. p75, whiskers p5 .. p95), and in `grid_month_hour_violin.nc` the same as
+  distributions for violin plots: histograms of `r0` and `lsi2` in 100 bins over the range of the variable in all data,
+  smoothed with a Gaussian of Silverman's bandwidth per month, hour and grid point and cut to the range of the data of
+  each violin, scaled to a maximum of 1 per violin.
+  Run again when more months are predicted; the months used are in the attribute `months`.
   During the download these are a Sobol sample of the years (step 1), so early statistics per calendar month rest on
   few years.
 - **step_5_convert_webui.py**: `grid_month.nc` and `grid_month_hour.nc` → the web app's climatology

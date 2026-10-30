@@ -16,6 +16,10 @@ Groupings of the time steps: `all`, `season` (DJF, MAM, JJA, SON), `month` (cale
 - `grid_month_hour.nc`: diurnal cycle of `r0`, `si2`, `lsi2` per grid point and calendar month, for box plots:
   dims (month, hour, stat, lat, lon), `stat`: `n`, `mean`, `p5`, `p25`, `median`, `p75`, `p95`, `iqr` (box p25 .. p75,
   whiskers p5 .. p95)
+- `grid_month_hour_violin.nc`: the same diurnal cycle of `r0` and `lsi2` as distributions, for violin plots: histograms
+  in `VIOLIN_BINS` bins (centres `<var>_x`) over the range of the variable in all data, smoothed with a Gaussian of
+  Silverman's bandwidth per month, hour and grid point (a binned kernel density estimate) and cut to its range, scaled to a maximum of 1 per violin (NaN
+  without data); dims (month, hour, <var>_x, lat, lon)
 
 Uses the months predicted so far (`list_months_predicted` of step 3; attributes `months`, `n_months`): during the
 download a sample of the years spread by the Sobol order of step 1, so early climatologies have few years per calendar
@@ -35,6 +39,8 @@ BOX_PERCENTILES = (5.0, 25.0, 50.0, 75.0, 95.0)  # box plots of the diurnal cycl
 STATS = ["n", "mean", "std", "min", *(f"p{p:g}" if p != 50 else "median" for p in PERCENTILES), "max", "iqr"]
 BOX_STATS = ["n", "mean", *(f"p{p:g}" if p != 50 else "median" for p in BOX_PERCENTILES), "iqr"]
 SEASONS = ["DJF", "MAM", "JJA", "SON"]
+VIOLIN_VARS = ["r0", "lsi2"]  # variables of the violin plots of the diurnal cycle
+VIOLIN_BINS = 100  # histogram bins of their densities, over the range of the variable
 ATTRS = {
     "lcn2": {"long_name": "log10 of the refractive index structure parameter Cn2", "units": "log10(m-2/3)"},
     "r0": {"long_name": "Fried parameter, 1550 nm", "units": "cm"},
@@ -70,6 +76,27 @@ def compute_stats(a: np.ndarray, box: bool = False) -> np.ndarray:
     return np.stack([n, mean, a.std(axis=0, dtype=np.float64), a.min(axis=0), *q, a.max(axis=0), iqr]).astype(
         np.float32
     )
+
+
+def compute_density(a: np.ndarray, x: np.ndarray) -> np.ndarray:
+    """Smoothed histogram of each column of `a` (samples, columns) on the uniform bin centres `x`: the counts per bin,
+    smoothed with a Gaussian of Silverman's bandwidth per column (a binned kernel density estimate), cut to the range of
+    the column (no density where nothing was observed, e.g. r0 < 0), scaled to a maximum of 1 per column:
+    (len(x), columns). NaN if `a` is empty."""
+    n, n_cols = a.shape
+    if not n:
+        return np.full((len(x), n_cols), np.nan, dtype=np.float32)
+    dx = x[1] - x[0]
+    bins = np.clip(np.round((a - x[0]) / dx).astype(int), 0, len(x) - 1)
+    hist = np.bincount((bins * n_cols + np.arange(n_cols)).ravel(), minlength=len(x) * n_cols).reshape(len(x), n_cols)
+    q25, q75 = np.percentile(a, [25, 75], axis=0)
+    spread = np.minimum(a.std(axis=0), (q75 - q25) / 1.34)
+    spread = np.where(spread > 0, spread, a.std(axis=0))  # IQR 0: the std
+    bw = np.maximum(0.9 * spread * n ** -0.2, dx)  # at least one bin (also for constant columns)
+    kernel = np.exp(-0.5 * ((x[:, None, None] - x[None, :, None]) / bw) ** 2)  # (x, bin, column)
+    density = np.einsum("ijc,jc->ic", kernel, hist)
+    density[(x[:, None] < x[bins.min(axis=0)]) | (x[:, None] > x[bins.max(axis=0)])] = 0
+    return (density / density.max(axis=0)).astype(np.float32)
 
 
 def compute_linear_mean(lcn2: np.ndarray) -> np.ndarray:
@@ -160,8 +187,21 @@ if __name__ == "__main__":
         ]
         diurnal[v] = xr.DataArray(np.array(stats), dims=("month", "hour", "stat", "lat", "lon"), attrs=ATTRS[v])
 
+    # The same as distributions, for violin plots
+    violin = xr.Dataset(coords={"month": range(1, 13), "hour": hours, "lat": ds["lat"], "lon": ds["lon"]})
+    for v in tqdm(VIOLIN_VARS, desc="violin", unit="var", dynamic_ncols=True):
+        a = pooled[v]
+        x = np.linspace(a.min(), a.max(), VIOLIN_BINS)  # bin centres
+        dens = [
+            [compute_density(a[(times.month == m) & (times.hour == h)], x).reshape(-1, n_lat, n_lon) for h in hours]
+            for m in range(1, 13)
+        ]
+        violin = violin.assign_coords({f"{v}_x": (f"{v}_x", x, ATTRS[v])})
+        violin[v] = xr.DataArray(np.array(dens), dims=("month", "hour", f"{v}_x", "lat", "lon"), attrs=ATTRS[v])
+
     attrs = {"months": " ".join(sorted(months)), "n_months": len(months), **ds.attrs}
     diurnal.assign_attrs(attrs).to_netcdf(OUT / "grid_month_hour.nc")
+    violin.assign_attrs(attrs).to_netcdf(OUT / "grid_month_hour_violin.nc")
     for g in groups:
         out = to_dataset(grid[g], g, groups, {"lat": ds["lat"], "lon": ds["lon"], "z_agl": ds["z_agl"]}, ("lat", "lon"))
         out.assign_attrs(attrs).to_netcdf(OUT / f"grid_{g}.nc")

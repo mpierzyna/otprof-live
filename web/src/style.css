@@ -17,6 +17,7 @@
   --cursor: #ed6c02;
   --grid: rgba(0, 0, 0, 0.06);
   --envelope: rgba(25, 118, 210, 0.12);
+  --live: #c2185b; /* the forecast, against the blue climatology */
   --error: #d32f2f;
   --error-bg: #fdeded;
   --error-text: #5f2120;
@@ -51,6 +52,7 @@
     --cursor: #ffa726;
     --grid: rgba(255, 255, 255, 0.07);
     --envelope: rgba(144, 202, 249, 0.14);
+    --live: #f48fb1;
     --error: #f44336;
     --error-bg: #160b0b;
     --error-text: #f4c7c7;
@@ -254,6 +256,93 @@ option {
   .tabs button[aria-selected="true"]::after {
     background: var(--primary);
   }
+}
+
+/* Toggle group on a card (the same, in the primary colour) */
+.toggle-group.on-paper {
+  border-color: var(--outline);
+}
+.toggle-group.on-paper button {
+  color: var(--text-2);
+  padding: 3px 12px;
+  font-size: 13px;
+}
+.toggle-group.on-paper button + button {
+  border-left-color: var(--outline);
+}
+.toggle-group.on-paper button:hover {
+  background: var(--action);
+}
+.toggle-group.on-paper button[aria-pressed="true"] {
+  background: var(--primary-selected);
+  color: var(--primary);
+}
+
+/* Legends of the plots: a swatch (line, dashed line, band) and its label per item */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.legend:empty {
+  display: none;
+}
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.legend i {
+  display: inline-block;
+  width: 22px;
+  height: 0;
+  border-top: 2px solid var(--primary);
+}
+.legend i.live {
+  border-top-color: var(--live);
+}
+.legend i.dashed {
+  border-top: 2px dashed var(--primary);
+}
+.legend i.band,
+.legend i.band-inner {
+  height: 10px;
+  border: 0;
+  border-radius: 2px;
+  background: var(--envelope);
+}
+.legend i.band-inner {
+  background: linear-gradient(var(--envelope), var(--envelope)), var(--envelope);
+}
+.legend i.box {
+  width: 12px;
+  height: 10px;
+  border: 1px solid var(--primary);
+  background: var(--envelope);
+}
+.legend i.violin {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--primary);
+  border-radius: 50% / 30%;
+  background: var(--envelope);
+}
+.legend i.whisker {
+  width: 0;
+  height: 12px;
+  border-top: 0;
+  border-left: 1.5px solid var(--primary);
+}
+.legend i.dot {
+  width: 6px;
+  height: 6px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--cursor);
 }
 
 /* Linear progress under the app bar */
@@ -726,6 +815,15 @@ input[type="range"]:disabled {
 .plot .envelope {
   fill: var(--envelope);
 }
+.plot .profile.live {
+  stroke: var(--live);
+}
+.plot .reference {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 3;
+}
 .plot .series {
   fill: none;
   stroke: var(--primary);
@@ -744,6 +842,15 @@ input[type="range"]:disabled {
 }
 .plot .box circle {
   fill: var(--cursor);
+}
+.plot .box .violin {
+  fill: var(--envelope);
+  stroke: var(--primary);
+  stroke-width: 1;
+}
+.plot .box .inner {
+  fill: var(--primary);
+  stroke: none;
 }
 .plot .z-cursor {
   stroke: var(--cursor);

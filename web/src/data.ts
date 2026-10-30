@@ -1,14 +1,18 @@
 // Reading the otprof-live/1 data format (docs/DATA_FORMAT.md): index, cycle metadata and the binary arrays, and the
 // climatology (otprof-live-clim/1).
 
-export interface VarMeta {
-  long_name?: string;
-  units?: string;
-  dims: string[];
-  dtype: "uint16" | "float32";
+/** Storage of an array: value = offset + scale * stored, `fill` missing (NaN for float32). */
+interface Encoding {
+  dtype: "uint8" | "uint16" | "float32";
   scale?: number;
   offset?: number;
   fill?: number;
+}
+
+export interface VarMeta extends Encoding {
+  long_name?: string;
+  units?: string;
+  dims: string[];
   valid_range?: [number, number];
   display_range?: [number, number];
   display_range_z?: [number, number][];
@@ -19,6 +23,7 @@ export interface VarMeta {
   display_ranges?: Record<string, [number, number]>; // per statistic
   display_ranges_z?: Record<string, [number, number][]>;
   diurnal?: { dims: string[]; stats: string[]; file: string }; // [month][hour][stat][lat][lon]
+  violin?: Encoding & { dims: string[]; x: number[]; files: string[] }; // densities per month [lat][lon][hour][x]
 }
 
 interface GridMeta {
@@ -68,14 +73,14 @@ export async function loadIndex(dataUrl: string): Promise<Index> {
   return index;
 }
 
-function decode(buffer: ArrayBuffer, v: VarMeta): Float32Array {
+function decode(buffer: ArrayBuffer, v: Encoding): Float32Array {
   const scale = v.scale ?? 1;
   const offset = v.offset ?? 0;
   if (v.dtype === "float32") {
     const raw = new Float32Array(buffer);
     return scale === 1 && offset === 0 ? raw : raw.map((x) => offset + scale * x);
   }
-  const raw = new Uint16Array(buffer);
+  const raw = v.dtype === "uint8" ? new Uint8Array(buffer) : new Uint16Array(buffer);
   const out = new Float32Array(raw.length);
   for (let k = 0; k < raw.length; k++) out[k] = raw[k] === v.fill ? NaN : offset + scale * raw[k];
   return out;
@@ -231,17 +236,6 @@ export abstract class Dataset {
     return this.field(name, step, zi, stat)?.[cell] ?? NaN;
   }
 
-  /** Lowest and highest value per height over the loaded steps at a cell. */
-  envelope(name: string, cell: number): [Float32Array, Float32Array] {
-    const lo = new Float32Array(this.nz).fill(Infinity);
-    const hi = new Float32Array(this.nz).fill(-Infinity);
-    for (let step = 0; step < this.times.length; step++) {
-      const p = this.profile(name, step, cell);
-      if (p) for (let k = 0; k < this.nz; k++) if (!Number.isNaN(p[k])) [lo[k], hi[k]] = [Math.min(lo[k], p[k]), Math.max(hi[k], p[k])]; // fmt: skip
-    }
-    return [lo, hi];
-  }
-
   /** Index of the cell nearest to (lat, lon) that has data, or -1. */
   nearestCell(lat: number, lon: number): number {
     let best = -1;
@@ -282,6 +276,8 @@ export class Cycle extends Dataset {
 export class Climatology extends Dataset {
   readonly meta: ClimMeta;
   private diurnalArr = new Map<string, Float32Array>();
+  private violinArr = new Map<string, Promise<Float32Array>>(); // "<name>/<step>"
+  private violinDone = new Map<string, Float32Array>();
 
   private constructor(meta: ClimMeta, base: string) {
     const mid = (m: number) => new Date((Date.UTC(2001, m - 1, 1) + Date.UTC(2001, m, 1)) / 2);
@@ -307,9 +303,9 @@ export class Climatology extends Dataset {
     );
   }
 
-  /** Variables with a diurnal cycle. */
+  /** Variables with a diurnal cycle, in the order of the variables. */
   get diurnalVars(): string[] {
-    return [...this.diurnalArr.keys()];
+    return Object.keys(this.variables).filter((n) => this.diurnalArr.has(n));
   }
 
   /** Diurnal cycle at a month and cell: per statistic, the values at `meta.hours`. */
@@ -321,6 +317,38 @@ export class Climatology extends Dataset {
     const nh = this.meta.hours.length;
     const at = (h: number, k: number) => arr[((step * nh + h) * stats.length + k) * n + cell];
     return Object.fromEntries(stats.map((s, k) => [s, Float32Array.from({ length: nh }, (_, h) => at(h, k))]));
+  }
+
+  /** Variables with violin densities of the diurnal cycle. */
+  get violinVars(): string[] {
+    return Object.keys(this.variables).filter((n) => this.variables[n].violin);
+  }
+
+  /** The violin densities of a month, all variables (loaded on first use, one file per variable and month). */
+  loadViolins(step: number): Promise<void> {
+    return Promise.all(
+      this.violinVars.map((name) => {
+        const key = `${name}/${step}`;
+        if (!this.violinArr.has(key)) {
+          const v = this.variables[name].violin!;
+          const p = this.fetchBin(v.files[step]).then((b) => decode(b, v));
+          this.violinArr.set(key, p.then((a) => (this.violinDone.set(key, a), a)));
+          p.catch(() => this.violinArr.delete(key)); // retried next time
+        }
+        return this.violinArr.get(key)!;
+      }),
+    ).then(() => undefined);
+  }
+
+  /** Densities (scaled to a maximum of 1) at the bin centres `x`, per hour of `meta.hours`, at a month and cell;
+   * undefined until `loadViolins(step)` is done. */
+  violin(name: string, step: number, cell: number): { x: number[]; density: Float32Array[] } | undefined {
+    const arr = this.violinDone.get(`${name}/${step}`);
+    const x = this.variables[name].violin?.x;
+    if (!arr || !x) return undefined;
+    const nh = this.meta.hours.length;
+    const density = this.meta.hours.map((_, h) => arr.slice((cell * nh + h) * x.length, (cell * nh + h + 1) * x.length));
+    return { x, density };
   }
 
   /** Statistics a variable has. */

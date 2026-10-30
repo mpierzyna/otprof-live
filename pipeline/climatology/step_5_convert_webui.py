@@ -7,7 +7,8 @@ Run again whenever the climatology is recomputed. Step 4 of the live pipeline (.
 
 Per calendar month and grid point: the statistics `CLIM_STATS` of lcn2 (per height), r0 and lsi2 (`grid_month.nc`),
 the log10 of the mean linear Cn2 as the extra statistic `lmean` of lcn2, and the diurnal cycle (3-hourly, UTC) of r0
-and lsi2 with the same statistics (`grid_month_hour.nc`).
+and lsi2 with the same statistics (`grid_month_hour.nc`) and as densities for violin plots
+(`grid_month_hour_violin.nc`, if there).
 """
 
 import pathlib
@@ -25,8 +26,12 @@ if __name__ == "__main__":
 
     grid = to_grid(xr.open_dataset(src / "grid_month.nc")).load()
     diurnal = to_grid(xr.open_dataset(src / "grid_month_hour.nc")).load()
+    violin_file = src / "grid_month_hour_violin.nc"
+    violin = to_grid(xr.open_dataset(violin_file)).load() if violin_file.exists() else None
+    if violin is None:
+        logger.warning(f"{violin_file} missing (step 4 before the violin plots): the app shows box plots only")
     out = WEBUI_DATA / CLIM_DIR
-    meta = write_climatology(grid, diurnal, out)
+    meta = write_climatology(grid, diurnal, out, violin)
     size = sum(f.stat().st_size for f in out.iterdir()) / 1e6
     logger.info(f"Wrote {out} ({size:.1f} MB, {meta['info']['Sample']})")
 

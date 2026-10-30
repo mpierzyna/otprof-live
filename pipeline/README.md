@@ -36,12 +36,37 @@ live/run.sh                        # one run: the newest complete GFS cycle on A
 | `step_3_convert.py` | → `data/webui/<YYYYMMDDHH>/` and `index.json` (newest 8 cycles); finishes the run: removes `running`, keeps the newest 8 run directories (~140 MB each) |
 | `step_4_upload.sh` | mirrors `data/webui/` to the remote (rclone); independent of the run, a failure is repeated next time |
 
-`run.sh` takes a lock (one run at a time) and is meant for cron, e.g. every 30 minutes (GFS cycles appear ~4-5 h after
-00, 06, 12, 18 UTC):
+`run.sh` takes a lock (one run at a time). `watcher.sh` calls it every hour (GFS cycles are complete on AWS ~4-5 h after
+00, 06, 12, 18 UTC), logs, and keeps going after failed runs:
 
+```sh
+live/watcher.sh [INTERVAL_S]                                    # foreground, default 3600 s
+nohup live/watcher.sh >> data/live/watcher.log 2>&1 &           # background
 ```
-*/30 * * * * /path/to/pipeline/live/run.sh >> /path/to/pipeline/data/live/run.log 2>&1
+
+To keep it running across logouts and reboots, as a systemd user service:
+
+```sh
+mkdir -p ~/.config/systemd/user
+cat > ~/.config/systemd/user/otprof-watcher.service <<EOT
+[Unit]
+Description=OTProf live: process new GFS cycles
+After=network-online.target
+
+[Service]
+ExecStart=$(pwd)/live/watcher.sh
+Environment=PATH=$(dirname "$(which uv)"):/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+EOT
+systemctl --user daemon-reload && systemctl --user enable --now otprof-watcher
+loginctl enable-linger "$USER"                                  # run without being logged in
+journalctl --user -u otprof-watcher -f                          # log
 ```
+
+Alternatively cron instead of the watcher: `0 * * * * /path/to/pipeline/live/run.sh >> /path/to/pipeline/data/live/run.log 2>&1`.
 
 ## Climatology (`climatology/`)
 

@@ -48,11 +48,14 @@ export class ProfileView {
     this.onPickZ = onPickZ;
   }
 
-  /** `profile` undefined: not loaded yet. `bands`: [low, high] per height, drawn on top of each other as context. */
+  /** `profile` at the heights `z`, undefined: not loaded yet; `live`: drawn in the forecast colour. Context behind it:
+   * `bands` (low, high per height of their own `z`, drawn on top of each other) and a dashed `reference` line. */
   draw(o: {
     z: number[];
     profile: Float32Array | undefined;
-    bands: [Float32Array, Float32Array][];
+    live?: boolean;
+    bands: { z: number[]; lo: Float32Array; hi: Float32Array }[];
+    reference?: { z: number[]; values: Float32Array };
     zi: number;
     heightScale: "log" | "linear";
     xDomain: [number, number];
@@ -80,10 +83,15 @@ export class ProfileView {
     svg.append("clipPath").attr("id", clip).append("rect").attr("width", pw).attr("height", ph);
     const plot = g.append("g").attr("clip-path", `url(#${clip})`);
 
-    for (const [lo, hi] of o.bands) {
-      const band = z.map((h, k) => [x(lo[k]), x(hi[k]), y(h)]).filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b)); // fmt: skip
+    for (const b of o.bands) {
+      const band = b.z.map((h, k) => [x(b.lo[k]), x(b.hi[k]), y(h)]).filter(([a, c]) => Number.isFinite(a) && Number.isFinite(c)); // fmt: skip
       if (band.length > 1)
         plot.append("path").attr("class", "envelope").attr("d", `M${band.map(([a, , c]) => `${a},${c}`).join("L")}L${band.reverse().map(([, b, c]) => `${b},${c}`).join("L")}Z`); // fmt: skip
+    }
+    if (o.reference) {
+      const r = o.reference;
+      const pts = r.z.map((h, k) => [x(r.values[k]), y(h)]).filter(([a]) => Number.isFinite(a));
+      if (pts.length) plot.append("path").attr("class", "reference").attr("d", `M${pts.join("L")}`);
     }
 
     const prof = o.profile;
@@ -91,7 +99,7 @@ export class ProfileView {
     plot.append("line").attr("class", "z-cursor").attr("x1", 0).attr("x2", pw).attr("y1", y(sel)).attr("y2", y(sel));
     if (prof) {
       const pts = z.map((h, k) => [x(prof[k]), y(h)]).filter(([a]) => Number.isFinite(a));
-      plot.append("path").attr("class", "profile").attr("d", pts.length ? `M${pts.join("L")}` : "");
+      plot.append("path").attr("class", o.live ? "profile live" : "profile").attr("d", pts.length ? `M${pts.join("L")}` : ""); // fmt: skip
       const v = prof[zi];
       if (!Number.isNaN(v)) {
         plot.append("circle").attr("class", "z-marker").attr("cx", x(v)).attr("cy", y(sel)).attr("r", 3.5);
@@ -286,7 +294,25 @@ export class TimeHeightView {
 /** One box: whiskers p5 to p95, box p25 to p75, median line, mean dot. */
 export type BoxStats = Record<"p5" | "p25" | "median" | "p75" | "p95" | "mean", Float32Array>;
 
-/** Diurnal cycle of the climatology: box plots per hour, one plot per variable. */
+/** Densities of a violin per hour (scaled to a maximum of 1) at the values `x`. */
+export interface Violins {
+  x: number[];
+  density: Float32Array[];
+}
+
+const VIOLIN_MIN_DENSITY = 0.01; // tails below this fraction of the peak are not drawn
+
+/** Values and densities of one violin, trimmed to where the density reaches `VIOLIN_MIN_DENSITY`. */
+function violinOutline(x: number[], d: Float32Array): [number, number][] {
+  const ok = (i: number) => !Number.isNaN(d[i]) && d[i] >= VIOLIN_MIN_DENSITY;
+  let lo = 0;
+  let hi = x.length - 1;
+  while (lo <= hi && !ok(lo)) lo++;
+  while (hi >= lo && !ok(hi)) hi--;
+  return lo > hi ? [] : x.slice(lo, hi + 1).map((v, i) => [v, d[lo + i]]);
+}
+
+/** Diurnal cycle of the climatology, one plot per variable: box plots per hour, or violins (with the box inside). */
 export class DiurnalView {
   private el: HTMLElement;
   private m = { top: 22, right: 12, bottom: 34, left: 48 };
@@ -296,7 +322,11 @@ export class DiurnalView {
     this.el = el;
   }
 
-  draw(hours: number[], plots: { label: string; fmt: (v: number) => string; boxes: BoxStats | undefined }[]) {
+  draw(
+    hours: number[],
+    kind: "box" | "violin",
+    plots: { label: string; fmt: (v: number) => string; boxes: BoxStats | undefined; violins?: Violins }[],
+  ) {
     this.el.innerHTML = "";
     // All hosts first: their widths depend on how many share the grid row
     const hosts = plots.map(() => this.el.appendChild(document.createElement("div")));
@@ -310,26 +340,43 @@ export class DiurnalView {
       g.append("text").attr("class", "strip-label").attr("x", 0).attr("y", -8).text(p.label);
       const b = p.boxes;
       if (!b) continue;
-      const finite = [...b.p5, ...b.p95].filter((v) => !Number.isNaN(v));
-      const x = scaleBand<number>().domain(hours).range([0, pw]).padding(0.35);
+      const violins = kind === "violin" && p.violins ? p.violins.density.map((d) => violinOutline(p.violins!.x, d)) : undefined; // fmt: skip
+      const finite = [...b.p5, ...b.p95, ...(violins?.flat().map(([v]) => v) ?? [])].filter((v) => !Number.isNaN(v));
+      const x = scaleBand<number>().domain(hours).range([0, pw]).padding(violins ? 0.1 : 0.35);
       const y = scaleLinear().domain(finite.length ? [Math.min(...finite), Math.max(...finite)] : [0, 1]).range([ph, 0]).nice(4); // fmt: skip
       g.append("g").attr("class", "grid").call(axisLeft(y).ticks(4).tickSize(-pw).tickFormat(() => ""));
       g.append("g").attr("class", "axis").call(axisLeft(y).ticks(4));
       g.append("g").attr("class", "axis").attr("transform", `translate(0,${ph})`)
         .call(axisBottom(x).tickFormat((h) => format("02d")(h))); // fmt: skip
       g.append("text").attr("class", "axis-label").attr("x", pw / 2).attr("y", ph + 30).attr("text-anchor", "middle").text("Hour (UTC)"); // fmt: skip
+      const clip = `clip-${Math.random().toString(36).slice(2)}`;
+      svg.append("clipPath").attr("id", clip).append("rect").attr("width", pw).attr("height", ph);
+      const plot = g.append("g").attr("clip-path", `url(#${clip})`);
 
       hours.forEach((h, k) => {
         if ([b.p5, b.p25, b.median, b.p75, b.p95].some((a) => Number.isNaN(a[k]))) return;
         const cx = x(h)! + x.bandwidth() / 2;
-        const box = g.append("g").attr("class", "box");
+        const box = plot.append("g").attr("class", "box");
         box.append("title").text(
           `${format("02d")(h)} UTC: median ${p.fmt(b.median[k])}, mean ${p.fmt(b.mean[k])}\n` +
             `25–75 %: ${p.fmt(b.p25[k])} to ${p.fmt(b.p75[k])}\n5–95 %: ${p.fmt(b.p5[k])} to ${p.fmt(b.p95[k])}`,
         );
-        box.append("line").attr("class", "whisker").attr("x1", cx).attr("x2", cx).attr("y1", y(b.p5[k])).attr("y2", y(b.p95[k])); // fmt: skip
-        box.append("rect").attr("x", x(h)!).attr("width", x.bandwidth()).attr("y", y(b.p75[k])).attr("height", Math.max(1, y(b.p25[k]) - y(b.p75[k]))); // fmt: skip
-        box.append("line").attr("class", "median").attr("x1", x(h)!).attr("x2", x(h)! + x.bandwidth()).attr("y1", y(b.median[k])).attr("y2", y(b.median[k])); // fmt: skip
+        if (violins) {
+          const outline = violins[k];
+          const half = x.bandwidth() / 2;
+          if (outline.length > 1) {
+            const right = outline.map(([v, d]) => `${cx + half * d},${y(v)}`);
+            const left = outline.map(([v, d]) => `${cx - half * d},${y(v)}`).reverse();
+            box.append("path").attr("class", "violin").attr("d", `M${right.join("L")}L${left.join("L")}Z`);
+          }
+          const w = Math.max(3, x.bandwidth() * 0.12);
+          box.append("rect").attr("class", "inner").attr("x", cx - w / 2).attr("width", w).attr("y", y(b.p75[k])).attr("height", Math.max(1, y(b.p25[k]) - y(b.p75[k]))); // fmt: skip
+          box.append("line").attr("class", "median").attr("x1", cx - 2 * w).attr("x2", cx + 2 * w).attr("y1", y(b.median[k])).attr("y2", y(b.median[k])); // fmt: skip
+        } else {
+          box.append("line").attr("class", "whisker").attr("x1", cx).attr("x2", cx).attr("y1", y(b.p5[k])).attr("y2", y(b.p95[k])); // fmt: skip
+          box.append("rect").attr("x", x(h)!).attr("width", x.bandwidth()).attr("y", y(b.p75[k])).attr("height", Math.max(1, y(b.p25[k]) - y(b.p75[k]))); // fmt: skip
+          box.append("line").attr("class", "median").attr("x1", x(h)!).attr("x2", x(h)! + x.bandwidth()).attr("y1", y(b.median[k])).attr("y2", y(b.median[k])); // fmt: skip
+        }
         if (!Number.isNaN(b.mean[k])) box.append("circle").attr("cx", cx).attr("cy", y(b.mean[k])).attr("r", 2.5);
       });
     }

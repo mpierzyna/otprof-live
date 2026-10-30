@@ -45,6 +45,7 @@
           <h2 id="profile-title">Profile</h2>
           <div id="profile-sub" class="subheader"></div>
           <div id="column-values" class="chips"></div>
+          <div id="profile-legend" class="legend"></div>
         </div>
         <div id="profile" class="plot-host"></div>
       </section>
@@ -98,7 +99,11 @@
       <section id="diurnal-panel" class="card diurnal-panel" aria-label="Diurnal cycle" hidden>
         <div class="card-header row">
           <h2 id="diurnal-title">Diurnal cycle</h2>
-          <span class="subheader">Box 25th–75th, whiskers 5th–95th percentile, line median, dot mean</span>
+          <div id="diurnal-kind" class="toggle-group on-paper" role="group" aria-label="Plot type">
+            <button type="button" data-kind="box">Box</button>
+            <button type="button" data-kind="violin">Violin</button>
+          </div>
+          <div id="diurnal-legend" class="legend"></div>
         </div>
         <div id="diurnal" class="diurnal"></div>
       </section>

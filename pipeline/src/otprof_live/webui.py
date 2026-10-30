@@ -18,6 +18,9 @@ from otprof_live.config import logger
 FORMAT = "otprof-live/1"
 CLIM_FORMAT = "otprof-live-clim/1"
 FILL = 65535
+VIOLIN_FILL = 255  # uint8 densities of the violin plots: missing
+VIOLIN_LEVELS = 64  # density levels stored (0 .. 63): enough for the width of a violin, and compresses well
+VIOLIN_MIN = 0.01  # densities below this fraction of the peak are stored as 0 (the app does not draw them)
 CLIM_DIR = "climatology"  # directory of the climatology in a data root
 
 # Climatology: exported variables (the app shows them in this order) and statistics
@@ -27,7 +30,8 @@ CLIM_NOTES = """\
 ## Climatology
 
 Cn² profiles predicted by SQF-H from ERA5 (0.25°, 3-hourly), summarised per calendar month and grid point.
-The statistics of each month pool all hours of the day; the diurnal cycle splits them by hour (UTC).
+The statistics of each month pool all hours of the day; the diurnal cycle splits them by hour (UTC), as box plots or
+as violins (the distribution as a kernel density, with the 25th–75th percentile box inside).
 The map shows the selected statistic; the profile shows the 25th–75th (dark) and 5th–95th (light) percentile bands.
 Months with few years in the sample (listed above the profile) are less representative.
 """
@@ -133,8 +137,13 @@ def display_ranges(vals: np.ndarray, stats: list[str], per_z: bool = False) -> d
     return out
 
 
-def write_climatology(grid: xr.Dataset, diurnal: xr.Dataset, out: pathlib.Path) -> dict:
-    """`grid` (month, stat, lat, lon[, z]) and `diurnal` (month, hour, stat, lat, lon) → `out`; returns meta.json."""
+def write_climatology(
+    grid: xr.Dataset, diurnal: xr.Dataset, out: pathlib.Path, violin: xr.Dataset | None = None
+) -> dict:
+    """`grid` (month, stat, lat, lon[, z]), `diurnal` (month, hour, stat, lat, lon) and optionally `violin` (densities
+    scaled to a maximum of 1, (month, hour, <var>_x, lat, lon)) → `out`; returns meta.json. The densities are stored as
+    uint8 in `VIOLIN_LEVELS` levels (`VIOLIN_FILL` missing, tails below `VIOLIN_MIN` 0), one file per month, each violin
+    contiguous ([lat][lon][hour][x]): ~0.6 MB per variable and month, ~0.13 MB with gzip. The app loads the month shown."""
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)
@@ -175,6 +184,21 @@ def write_climatology(grid: xr.Dataset, diurnal: xr.Dataset, out: pathlib.Path) 
         if day.size:
             var["diurnal"] = {"dims": ["month", "hour", "stat", "lat", "lon"], "stats": CLIM_STATS, "file": f"{name}_diurnal.bin"}
             (out / var["diurnal"]["file"]).write_bytes(stored_day.tobytes())
+        if violin is not None and name in violin:
+            dens = violin[name].transpose("month", "lat", "lon", "hour", f"{name}_x").values
+            dens = np.where(dens < VIOLIN_MIN, 0, dens)
+            stored_violin = np.where(np.isnan(dens), VIOLIN_FILL, np.round(dens * (VIOLIN_LEVELS - 1))).astype("u1")
+            var["violin"] = {
+                "dims": ["month", "lat", "lon", "hour", "x"],
+                "x": [float(v) for v in violin[f"{name}_x"].values],
+                "dtype": "uint8",
+                "scale": 1 / (VIOLIN_LEVELS - 1),
+                "offset": 0.0,
+                "fill": VIOLIN_FILL,
+                "files": [f"{name}_violin_m{m:02d}.bin" for m in violin["month"].values],
+            }
+            for file, block in zip(var["violin"]["files"], stored_violin):
+                (out / file).write_bytes(block.tobytes())
         variables[name] = var
 
     months = grid.attrs["months"].split()  # "YYYY-MM" of the sample
