@@ -2,7 +2,7 @@
 
 The web app reads only static files below one data root (`dataUrl` in `web/public/config.json`, default `data/`).
 Nothing about the grid, the heights, the lead times or the variables is fixed in the app: everything comes from the
-files described here. `pipeline/write_cycle.py` is the reference writer.
+files described here. `pipeline/src/otprof_live/webui.py` (`write_cycle`) is the reference writer.
 
 ```
 data/
@@ -12,6 +12,7 @@ data/
     lcn2_f000.bin ...        binary arrays (one file per lead time for variables with heights)
     r0.bin, lsi2.bin         binary arrays (all lead times in one file for variables without heights)
     notes.md                 optional notes for this cycle (see meta.json "notes")
+  climatology/               optional climatology (format otprof-live-clim/1, see below)
 ```
 
 ## `index.json`
@@ -26,6 +27,8 @@ data/
 
 - `cycles`: directory names, newest first. The app offers them in a selector.
 - `latest`: the cycle shown by default (optional, default: the first in `cycles`).
+- `climatology`: directory of the climatology (optional, e.g. `"climatology/"`). If set, the app shows the tabs
+  *Live forecast* and *Climatology*.
 
 ## `<cycle>/meta.json`
 
@@ -85,6 +88,52 @@ Per variable:
 
 Arrays are C order (last dimension fastest), without header. Cells that are missing at all lead times (outside the
 domain) cannot be selected in the app.
+
+## Climatology (`otprof-live-clim/1`)
+
+Statistics per calendar month, written by `pipeline/src/otprof_live/webui.py` (`write_climatology`, run by `pipeline/climatology/step_5_convert_webui.py`). `climatology/meta.json` is like a cycle's
+`meta.json` (`lat`, `lon`, `z_agl`, `info`, `notes`, `variables` with the same encoding keys), without `cycle` and
+`lead_hours`; the time slider steps through the months:
+
+```json
+{
+  "format": "otprof-live-clim/1",
+  "months": [1, 2, 12],
+  "hours": [0, 3, 6, 9, 12, 15, 18, 21],
+  "years": [[2014], [2014], [2023]],
+  "stats": ["median", "mean", "p5", "p25", "p75", "p95", "lmean"],
+  "variables": {
+    "lcn2": {
+      "dims": ["month", "stat", "z", "lat", "lon"], "stats": ["median", "mean", "p5", "p25", "p75", "p95", "lmean"],
+      "dtype": "uint16", "scale": 0.0001, "offset": -22.2, "fill": 65535, "valid_range": [-22.2, -13.0],
+      "display_ranges": {"median": [-17.5, -14.0]}, "display_ranges_z": {"median": [[-15.8, -14.1]]},
+      "files": ["lcn2_m01.bin", "lcn2_m02.bin"]
+    },
+    "r0": {
+      "dims": ["month", "stat", "lat", "lon"], "stats": ["median", "mean", "p5", "p25", "p75", "p95"],
+      "file": "r0.bin",
+      "diurnal": {"dims": ["month", "hour", "stat", "lat", "lon"], "stats": ["median", "mean", "p5", "p25", "p75", "p95"], "file": "r0_diurnal.bin"}
+    }
+  }
+}
+```
+
+| key | meaning |
+|---|---|
+| `months` | calendar months (1 to 12), the steps of the time axis. |
+| `hours` | hours [UTC] of the diurnal cycle. |
+| `years` | per month, the years in the sample (shown in the app: months from few years are less representative). |
+| `stats` | all statistics, in the order the app offers them. `median`, `mean`, `pN` (Nth percentile); `lmean` is the log10 of the mean linear Cn2 (lcn2 only). The app needs `p5`, `p25`, `p75`, `p95` for the bands. |
+
+Per variable, in addition to the cycle keys:
+
+| key | meaning |
+|---|---|
+| `stats` | the statistics of this variable, in the order of the `stat` dimension of its files. |
+| `files` | one file per month, each `[stat][z][lat][lon]` (variables with `z`). |
+| `file` | alternatively one file `[month][stat][lat][lon]` (variables without `z`). |
+| `display_ranges`, `display_ranges_z` | per statistic, the colour scale range (and per height), over all months. |
+| `diurnal` | optional diurnal cycle, `[month][hour][stat][lat][lon]` with its own `stats`, same encoding as the variable. |
 
 ## Serving
 

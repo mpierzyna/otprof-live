@@ -1,4 +1,5 @@
-// Reading the otprof-live/1 data format (docs/DATA_FORMAT.md): index, cycle metadata and the binary arrays.
+// Reading the otprof-live/1 data format (docs/DATA_FORMAT.md): index, cycle metadata and the binary arrays, and the
+// climatology (otprof-live-clim/1).
 
 export interface VarMeta {
   long_name?: string;
@@ -13,12 +14,14 @@ export interface VarMeta {
   display_range_z?: [number, number][];
   files?: string[];
   file?: string;
+  // Climatology only
+  stats?: string[]; // statistics, in the order of the files (dimension "stat")
+  display_ranges?: Record<string, [number, number]>; // per statistic
+  display_ranges_z?: Record<string, [number, number][]>;
+  diurnal?: { dims: string[]; stats: string[]; file: string }; // [month][hour][stat][lat][lon]
 }
 
-export interface CycleMeta {
-  format: string;
-  cycle: string;
-  lead_hours: number[];
+interface GridMeta {
   lat: number[];
   lon: number[];
   z_agl?: number[];
@@ -27,13 +30,29 @@ export interface CycleMeta {
   variables: Record<string, VarMeta>;
 }
 
+export interface CycleMeta extends GridMeta {
+  format: string;
+  cycle: string;
+  lead_hours: number[];
+}
+
+export interface ClimMeta extends GridMeta {
+  format: string;
+  months: number[]; // 1 to 12
+  hours: number[]; // of the diurnal cycle [UTC]
+  years: number[][]; // years in the sample, per month
+  stats: string[]; // all statistics, in the order offered
+}
+
 export interface Index {
   format: string;
   cycles: string[];
   latest?: string;
+  climatology?: string; // directory of the climatology
 }
 
 const FORMAT = "otprof-live/1";
+const CLIM_FORMAT = "otprof-live-clim/1";
 const N_PARALLEL = 4;
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -62,89 +81,91 @@ function decode(buffer: ArrayBuffer, v: VarMeta): Float32Array {
   return out;
 }
 
-/** One forecast cycle: metadata and the arrays, loaded lazily per lead time for variables with heights. */
-export class Cycle {
+/**
+ * Gridded data with a time axis ("steps": the lead times of a cycle, the months of the climatology). Variables with
+ * heights are stored one file per step and loaded lazily; the others in one file. Climatology variables have a
+ * statistic dimension before the height (per step) or after the step (one file); the accessors take the statistic.
+ */
+export abstract class Dataset {
   readonly id: string;
-  readonly meta: CycleMeta;
   readonly base: string;
   readonly times: Date[];
+  readonly lat: number[];
+  readonly lon: number[];
   readonly nlat: number;
   readonly nlon: number;
   readonly nz: number;
   readonly z: number[];
+  readonly variables: Record<string, VarMeta>;
+  readonly info: Record<string, string>;
+  readonly notes?: string;
   readonly profileVars: string[];
   readonly columnVars: string[];
-  /** 1 where a cell has data at any lead time (cells outside the domain cannot be selected) */
+  /** 1 where a cell has data at any step (cells outside the domain cannot be selected) */
   valid = new Uint8Array(0);
-  private perLead = new Map<string, (Float32Array | undefined)[]>();
-  private whole = new Map<string, Float32Array>();
+  protected perStep = new Map<string, (Float32Array | undefined)[]>();
+  protected whole = new Map<string, Float32Array>();
   private pending = new Map<number, Promise<void>>();
-  private listeners: ((lead: number) => void)[] = [];
+  private listeners: ((step: number) => void)[] = [];
 
-  private constructor(id: string, meta: CycleMeta, base: string) {
+  protected constructor(id: string, base: string, meta: GridMeta, times: Date[]) {
     this.id = id;
-    this.meta = meta;
     this.base = base;
-    const t0 = Date.parse(meta.cycle);
-    this.times = meta.lead_hours.map((h) => new Date(t0 + h * 3.6e6));
+    this.times = times;
+    this.lat = meta.lat;
+    this.lon = meta.lon;
     this.nlat = meta.lat.length;
     this.nlon = meta.lon.length;
     this.z = meta.z_agl ?? [];
     this.nz = this.z.length;
+    this.variables = meta.variables;
+    this.info = meta.info ?? {};
+    this.notes = meta.notes;
     const names = Object.keys(meta.variables);
     this.profileVars = names.filter((n) => meta.variables[n].dims.includes("z"));
     this.columnVars = names.filter((n) => !meta.variables[n].dims.includes("z"));
   }
 
-  static async open(dataUrl: string, id: string): Promise<Cycle> {
-    const base = new URL(`${id}/`, dataUrl).href;
-    const meta = await fetchJson<CycleMeta>(new URL("meta.json", base).href);
-    if (meta.format !== FORMAT) console.warn(`${id}/meta.json: format ${meta.format}, expected ${FORMAT}`);
-    const cycle = new Cycle(id, meta, base);
-    await cycle.loadWhole();
-    return cycle;
-  }
-
-  /** Variables stored in one file (all lead times); the others are split per lead time. */
-  private async loadWhole() {
+  /** Variables stored in one file (all steps); the others are split per step. */
+  protected async loadWhole() {
     const n = this.nlat * this.nlon;
     this.valid = new Uint8Array(n);
     await Promise.all(
-      Object.entries(this.meta.variables).map(async ([name, v]) => {
+      Object.entries(this.variables).map(async ([name, v]) => {
         if (v.file) {
           const arr = decode(await this.fetchBin(v.file), v);
           this.whole.set(name, arr);
           for (let k = 0; k < arr.length; k++) if (!Number.isNaN(arr[k])) this.valid[k % n] = 1;
-        } else this.perLead.set(name, new Array(this.times.length));
+        } else this.perStep.set(name, new Array(this.times.length));
       }),
     );
   }
 
-  private async fetchBin(file: string): Promise<ArrayBuffer> {
+  protected async fetchBin(file: string): Promise<ArrayBuffer> {
     const r = await fetch(new URL(file, this.base).href);
     if (!r.ok) throw new Error(`${this.id}/${file}: HTTP ${r.status}`);
     return r.arrayBuffer();
   }
 
-  hasLead(lead: number): boolean {
-    return [...this.perLead.values()].every((a) => a[lead] !== undefined);
+  hasStep(step: number): boolean {
+    return [...this.perStep.values()].every((a) => a[step] !== undefined);
   }
 
-  loadLead(lead: number): Promise<void> {
-    if (this.hasLead(lead)) return Promise.resolve();
-    let p = this.pending.get(lead);
+  loadStep(step: number): Promise<void> {
+    if (this.hasStep(step)) return Promise.resolve();
+    let p = this.pending.get(step);
     if (!p) {
       p = Promise.all(
-        [...this.perLead.entries()].map(async ([name, arrs]) => {
-          const v = this.meta.variables[name];
-          arrs[lead] = decode(await this.fetchBin(v.files![lead]), v);
-          if (this.whole.size === 0) this.markValid(arrs[lead]!);
+        [...this.perStep.entries()].map(async ([name, arrs]) => {
+          const v = this.variables[name];
+          arrs[step] = decode(await this.fetchBin(v.files![step]), v);
+          if (this.whole.size === 0) this.markValid(arrs[step]!);
         }),
       ).then(() => {
-        this.pending.delete(lead);
-        this.listeners.forEach((f) => f(lead));
+        this.pending.delete(step);
+        this.listeners.forEach((f) => f(step));
       });
-      this.pending.set(lead, p);
+      this.pending.set(step, p);
     }
     return p;
   }
@@ -155,49 +176,70 @@ export class Cycle {
     for (let k = 0; k < arr.length; k++) if (!Number.isNaN(arr[k])) this.valid[k % n] = 1;
   }
 
-  /** All lead times, starting at `first` and wrapping around. */
+  /** All steps, starting at `first` and wrapping around. */
   async loadAll(first: number) {
     const n = this.times.length;
     const order = Array.from({ length: n }, (_, k) => (first + k) % n);
     const worker = async () => {
-      for (let lead = order.shift(); lead !== undefined; lead = order.shift()) await this.loadLead(lead);
+      for (let step = order.shift(); step !== undefined; step = order.shift()) await this.loadStep(step);
     };
     await Promise.all(Array.from({ length: N_PARALLEL }, worker));
   }
 
-  onLead(f: (lead: number) => void) {
+  onStep(f: (step: number) => void) {
     this.listeners.push(f);
   }
 
   get loadedCount(): number {
-    return this.times.reduce((c, _, lead) => c + (this.hasLead(lead) ? 1 : 0), 0);
+    return this.times.reduce((c, _, step) => c + (this.hasStep(step) ? 1 : 0), 0);
   }
 
-  /** Map field (lat, lon) of a variable at a lead time (and height index for profile variables), or undefined. */
-  field(name: string, lead: number, zi: number): Float32Array | undefined {
+  /** Index of the statistic `stat` of a variable (0 without statistics or if it has not got `stat`) and their number. */
+  protected statIndex(name: string, stat?: string): [number, number] {
+    const stats = this.variables[name]?.stats;
+    if (!stats) return [0, 1];
+    return [Math.max(0, stat ? stats.indexOf(stat) : 0), stats.length];
+  }
+
+  /** Map field (lat, lon) of a variable at a step (and height index for profile variables), or undefined. */
+  field(name: string, step: number, zi: number, stat?: string): Float32Array | undefined {
     const n = this.nlat * this.nlon;
+    const [k, ns] = this.statIndex(name, stat);
     const whole = this.whole.get(name);
-    if (whole) return whole.subarray(lead * n, (lead + 1) * n);
-    return this.perLead.get(name)?.[lead]?.subarray(zi * n, (zi + 1) * n);
+    if (whole) return whole.subarray((step * ns + k) * n, (step * ns + k + 1) * n);
+    return this.perStep.get(name)?.[step]?.subarray((k * this.nz + zi) * n, (k * this.nz + zi + 1) * n);
   }
 
-  /** Profile (z) at a lead time and cell, or undefined if not loaded. */
-  profile(name: string, lead: number, cell: number): Float32Array | undefined {
-    const arr = this.perLead.get(name)?.[lead];
+  /** Profile (z) at a step and cell, or undefined if not loaded. */
+  profile(name: string, step: number, cell: number, stat?: string): Float32Array | undefined {
+    const arr = this.perStep.get(name)?.[step];
     if (!arr) return undefined;
     const n = this.nlat * this.nlon;
-    return Float32Array.from({ length: this.nz }, (_, zi) => arr[zi * n + cell]);
+    const off = this.statIndex(name, stat)[0] * this.nz * n + cell;
+    return Float32Array.from({ length: this.nz }, (_, zi) => arr[off + zi * n]);
   }
 
-  /** Column variable over all lead times at a cell. */
-  series(name: string, cell: number): Float32Array {
+  /** Column variable over all steps at a cell. */
+  series(name: string, cell: number, stat?: string): Float32Array {
     const n = this.nlat * this.nlon;
+    const [k, ns] = this.statIndex(name, stat);
     const whole = this.whole.get(name)!;
-    return Float32Array.from({ length: this.times.length }, (_, lead) => whole[lead * n + cell]);
+    return Float32Array.from({ length: this.times.length }, (_, step) => whole[(step * ns + k) * n + cell]);
   }
 
-  value(name: string, lead: number, zi: number, cell: number): number {
-    return this.field(name, lead, zi)?.[cell] ?? NaN;
+  value(name: string, step: number, zi: number, cell: number, stat?: string): number {
+    return this.field(name, step, zi, stat)?.[cell] ?? NaN;
+  }
+
+  /** Lowest and highest value per height over the loaded steps at a cell. */
+  envelope(name: string, cell: number): [Float32Array, Float32Array] {
+    const lo = new Float32Array(this.nz).fill(Infinity);
+    const hi = new Float32Array(this.nz).fill(-Infinity);
+    for (let step = 0; step < this.times.length; step++) {
+      const p = this.profile(name, step, cell);
+      if (p) for (let k = 0; k < this.nz; k++) if (!Number.isNaN(p[k])) [lo[k], hi[k]] = [Math.min(lo[k], p[k]), Math.max(hi[k], p[k])]; // fmt: skip
+    }
+    return [lo, hi];
   }
 
   /** Index of the cell nearest to (lat, lon) that has data, or -1. */
@@ -209,10 +251,81 @@ export class Cycle {
       for (let j = 0; j < this.nlon; j++) {
         const cell = i * this.nlon + j;
         if (!this.valid[cell]) continue;
-        const d = (this.meta.lat[i] - lat) ** 2 + ((this.meta.lon[j] - lon) * cosLat) ** 2;
+        const d = (this.lat[i] - lat) ** 2 + ((this.lon[j] - lon) * cosLat) ** 2;
         if (d < dBest) [best, dBest] = [cell, d];
       }
     return best;
+  }
+}
+
+/** One forecast cycle: the steps are the lead times. */
+export class Cycle extends Dataset {
+  readonly meta: CycleMeta;
+
+  private constructor(id: string, meta: CycleMeta, base: string) {
+    const t0 = Date.parse(meta.cycle);
+    super(id, base, meta, meta.lead_hours.map((h) => new Date(t0 + h * 3.6e6)));
+    this.meta = meta;
+  }
+
+  static async open(dataUrl: string, id: string): Promise<Cycle> {
+    const base = new URL(`${id}/`, dataUrl).href;
+    const meta = await fetchJson<CycleMeta>(new URL("meta.json", base).href);
+    if (meta.format !== FORMAT) console.warn(`${id}/meta.json: format ${meta.format}, expected ${FORMAT}`);
+    const cycle = new Cycle(id, meta, base);
+    await cycle.loadWhole();
+    return cycle;
+  }
+}
+
+/** Statistics per calendar month: the steps are the months (as mid-month dates of the year 2001). */
+export class Climatology extends Dataset {
+  readonly meta: ClimMeta;
+  private diurnalArr = new Map<string, Float32Array>();
+
+  private constructor(meta: ClimMeta, base: string) {
+    const mid = (m: number) => new Date((Date.UTC(2001, m - 1, 1) + Date.UTC(2001, m, 1)) / 2);
+    super("climatology", base, meta, meta.months.map(mid));
+    this.meta = meta;
+  }
+
+  static async open(url: string): Promise<Climatology> {
+    const base = url.endsWith("/") ? url : `${url}/`;
+    const meta = await fetchJson<ClimMeta>(new URL("meta.json", base).href);
+    if (meta.format !== CLIM_FORMAT) console.warn(`climatology/meta.json: format ${meta.format}, expected ${CLIM_FORMAT}`); // fmt: skip
+    const clim = new Climatology(meta, base);
+    await clim.loadWhole();
+    return clim;
+  }
+
+  protected override async loadWhole() {
+    await super.loadWhole();
+    await Promise.all(
+      Object.entries(this.variables).map(async ([name, v]) => {
+        if (v.diurnal) this.diurnalArr.set(name, decode(await this.fetchBin(v.diurnal.file), v));
+      }),
+    );
+  }
+
+  /** Variables with a diurnal cycle. */
+  get diurnalVars(): string[] {
+    return [...this.diurnalArr.keys()];
+  }
+
+  /** Diurnal cycle at a month and cell: per statistic, the values at `meta.hours`. */
+  diurnal(name: string, step: number, cell: number): Record<string, Float32Array> | undefined {
+    const arr = this.diurnalArr.get(name);
+    const stats = this.variables[name].diurnal?.stats;
+    if (!arr || !stats) return undefined;
+    const n = this.nlat * this.nlon;
+    const nh = this.meta.hours.length;
+    const at = (h: number, k: number) => arr[((step * nh + h) * stats.length + k) * n + cell];
+    return Object.fromEntries(stats.map((s, k) => [s, Float32Array.from({ length: nh }, (_, h) => at(h, k))]));
+  }
+
+  /** Statistics a variable has. */
+  stats(name: string): string[] {
+    return this.variables[name]?.stats ?? [];
   }
 }
 

@@ -2,24 +2,24 @@
 
 Static web app showing OTProf (SQF-H) optical turbulence forecasts: a map of log10 Cn², r0 or the scintillation index
 with time and height sliders, the vertical profile and the time-height evolution at a clicked point, and markdown notes.
+A second tab shows the climatology (ERA5-driven SQF-H statistics per calendar month and grid point, with the annual and
+diurnal cycle at the clicked point) if the data root has one (`pipeline/climatology`, step 5).
 
 No code runs on the server: a forecast pipeline writes static files (`docs/DATA_FORMAT.md`), and any static web
 server (nginx) delivers them together with the built app. All interaction happens in the browser.
 
 ```
 web/        the app (Vite + TypeScript, MapLibre GL, d3)
-pipeline/   forecast pipeline (placeholder): write_cycle.py writes the data format, make_example.py example data
+pipeline/   the pipelines writing the data (pipeline/README.md): live/ GFS forecasts, climatology/ ERA5 climatology
 docs/       DATA_FORMAT.md: the contract between pipeline and app
 deploy/     nginx.conf (server block), update.sh (pull and rebuild, run from cron)
-dev-data/   example cycles for development (generated, not versioned)
 ```
 
 ## Development
 
 ```sh
-uv run --project ../otprof/code python pipeline/make_example.py   # example cycles -> dev-data/
 cd web && npm install
-npm run dev                          # http://localhost:5173, dev-data/ served at /data/
+OTPROF_LIVE_DATA=../pipeline/data/webui npm run dev   # http://localhost:5173, the pipeline's data served at /data/
 npm run dev -- --host <tailscale ip> # reachable over Tailscale
 npm run build && npm run preview -- --host <tailscale ip>   # production build, http://<ip>:4173
 ```
@@ -61,7 +61,7 @@ Without Docker: `cd web && npm ci && npm run build`, copy `web/dist/` to the web
 types, compression, caching and CSP that the app needs.
 
 Local test of the image with the example data:
-`OTPROF_LIVE_DATA=./dev-data docker compose up --build`, then open http://localhost:8080.
+`OTPROF_LIVE_DATA=./pipeline/data/webui docker compose up --build`, then open http://localhost:8080.
 
 The app needs WebGL (MapLibre). The basemap is Natural Earth 1:10m, cut to the region in
 `web/scripts/make_basemap.mjs` (widen it for larger domains).

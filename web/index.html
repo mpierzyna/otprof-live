@@ -14,12 +14,16 @@
           <span id="subtitle"></span>
         </div>
         <div id="var-switch" class="toggle-group" role="group" aria-label="Variable"></div>
-        <label class="appbar-select">
+        <label class="appbar-select" id="cycle-group">
           <span>Forecast</span>
           <select id="cycle-select"></select>
         </label>
       </div>
-      <div id="progress" class="progress" role="progressbar" aria-label="Loading lead times" hidden><div></div></div>
+      <nav id="mode-tabs" class="tabs" role="tablist" aria-label="View" hidden>
+        <button type="button" role="tab" data-mode="live">Live forecast</button>
+        <button type="button" role="tab" data-mode="clim">Climatology</button>
+      </nav>
+      <div id="progress" class="progress" role="progressbar" aria-label="Loading" hidden><div></div></div>
     </header>
 
     <main class="layout">
@@ -50,7 +54,7 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path id="play-icon" d="M8 5v14l11-7z" /></svg>
         </button>
         <div class="slider">
-          <label for="time">Time</label>
+          <label for="time" id="time-name">Time</label>
           <input id="time" type="range" min="0" max="0" step="1" value="0" />
           <output id="time-label"></output>
         </div>
@@ -60,6 +64,10 @@
           <output id="height-label"></output>
         </div>
         <div class="options">
+          <label class="outlined-select" id="stat-group" title="Statistic of the climatology shown on the map, in the profile and over the year" hidden>
+            <span>Statistic</span>
+            <select id="stat"></select>
+          </label>
           <label class="outlined-select" title="Playback speed">
             <span>Speed</span>
             <select id="speed">
@@ -87,6 +95,14 @@
         <div id="th-colorbar" class="colorbar"></div>
       </section>
 
+      <section id="diurnal-panel" class="card diurnal-panel" aria-label="Diurnal cycle" hidden>
+        <div class="card-header row">
+          <h2 id="diurnal-title">Diurnal cycle</h2>
+          <span class="subheader">Box 25th–75th, whiskers 5th–95th percentile, line median, dot mean</span>
+        </div>
+        <div id="diurnal" class="diurnal"></div>
+      </section>
+
       <section class="card notes-panel" aria-label="Notes">
         <article id="notes" class="markdown"></article>
         <dl id="info" class="info"></dl>
@@ -94,7 +110,7 @@
     </main>
 
     <footer class="footer">
-      Keys: space play/pause · ← → time · ↑ ↓ height · click the map, profile or time-height plot to select
+      Keys: space play/pause · ← → time (month) · ↑ ↓ height · click the map, profile or time-height plot to select
     </footer>
     <div id="error" class="snackbar" hidden></div>
     <script type="module" src="/src/main.ts"></script>

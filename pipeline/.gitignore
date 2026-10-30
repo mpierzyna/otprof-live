@@ -180,3 +180,8 @@ data/
 
 # web app data written by step 3
 data_webui/
+
+# pipeline settings and lock files
+.env
+!.env.example
+.run.lock

@@ -1,24 +1,25 @@
 #!/bin/bash
-# Step 4: mirror the web app's data root (data_webui, written by step 3) to the remote with rclone.
+# Step 4: mirror the web app's data root (WEBUI_DATA: cycles of step 3, climatology of ../climatology step 5) to the
+# remote with rclone. Independent of the run: a failed upload is repeated with the next one.
 #
 #   bash step_4_upload.sh            upload
 #   bash step_4_upload.sh --config   set up the remote interactively (rclone config with the local config file)
 #
-# The rclone config is local to the pipeline (.rclone.conf, git-ignored). The remote must be named "otprof" and point
-# at the web app's data root, e.g. "otprof:/srv/otprof_data" (a path can be set with OTPROF_REMOTE_PATH).
-# The remote ends up identical to data_webui: files that are not in data_webui are deleted there.
+# The rclone config is local to the pipeline (pipeline/.rclone.conf, git-ignored). The remote must be named "otprof" and
+# point at the web app's data root, e.g. "otprof:/srv/otprof_data" (a path can be set with OTPROF_REMOTE_PATH).
+# The remote ends up identical to WEBUI_DATA: files that are not there are deleted on the remote.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG="${HERE}/.rclone.conf"
+CONFIG="$(dirname "${HERE}")/.rclone.conf"
 REMOTE="otprof:${OTPROF_REMOTE_PATH:-}"
-SRC="${HERE}/data_webui"
 RCLONE=(rclone --config "${CONFIG}")
 
 if [[ "${1:-}" == "--config" ]]; then
     exec "${RCLONE[@]}" config
 fi
 
+SRC="$(cd "${HERE}" && uv run --quiet python -m otprof_live.config webui)"
 if [[ ! -f "${CONFIG}" ]]; then
     echo "No rclone config at ${CONFIG}; run: bash $0 --config" >&2
     exit 1
@@ -34,6 +35,3 @@ fi
 "${RCLONE[@]}" copy "${SRC}/index.json" "${REMOTE}"
 "${RCLONE[@]}" sync "${SRC}" "${REMOTE}"
 echo "Synced ${SRC} to ${REMOTE}"
-
-# Remove running dir symlink 
-rm "${HERE}/data/running"

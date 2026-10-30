@@ -6,7 +6,7 @@ import { type CanvasSource, type GeoJSONSource, Map as MapLibre, NavigationContr
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Colormap } from "./colormap";
-import { bin, type Cycle, edges } from "./data";
+import { bin, type Dataset, edges } from "./data";
 
 // The worker is self-contained: served as a file of its own, both by the dev server and in the build
 setWorkerUrl(workerUrl);
@@ -25,7 +25,7 @@ export class MapView {
   private pixCell = new Int32Array(0); // canvas pixel -> cell, -1 outside
   private latE: number[] = [];
   private lonE: number[] = [];
-  private cycle?: Cycle;
+  private cycle?: Dataset;
   private ready: Promise<void>;
   private padding: number;
 
@@ -121,11 +121,11 @@ export class MapView {
     return this.cycle.valid[cell] ? cell : -1;
   }
 
-  async setCycle(cycle: Cycle) {
+  async setCycle(cycle: Dataset) {
     await this.ready;
     this.cycle = cycle;
-    this.latE = edges(cycle.meta.lat);
-    this.lonE = edges(cycle.meta.lon);
+    this.latE = edges(cycle.lat);
+    this.lonE = edges(cycle.lon);
     const [w, e, s, n] = [this.lonE[0], this.lonE.at(-1)!, this.latE[0], this.latE.at(-1)!];
 
     // Canvas pixels -> cells

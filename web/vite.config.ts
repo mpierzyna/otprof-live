@@ -2,9 +2,9 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { type Connect, defineConfig, type Plugin } from "vite";
 
-// Development data (pipeline/make_example.py) served at /data/ by the dev and preview servers only, so it never ends up
-// in the build: in production the web server delivers the pipeline output at the same path.
-const DEV_DATA = resolve(__dirname, process.env.OTPROF_LIVE_DATA ?? "../dev-data");
+// Development data (default: the pipelines' web data, pipeline/data/webui) served at /data/ by the dev and preview
+// servers only, so it never ends up in the build: in production the web server delivers it at the same path.
+const DEV_DATA = resolve(__dirname, process.env.OTPROF_LIVE_DATA ?? "../pipeline/data/webui");
 const TYPES: Record<string, string> = { ".json": "application/json", ".md": "text/markdown; charset=utf-8" };
 
 function devData(): Plugin {

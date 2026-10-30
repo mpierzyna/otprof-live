@@ -1,13 +1,14 @@
 // Profile panel (variable vs height at the selected cell and time) and time-height panel (the profile variable over
-// the forecast at the selected cell, with the column variables as time series below).
+// the forecast or the months of the climatology at the selected cell, with the column variables as time series below),
+// and the diurnal cycle of the climatology as box plots.
 
 import { axisBottom, axisLeft } from "d3-axis";
 import { format } from "d3-format";
-import { type ScaleContinuousNumeric, scaleLinear, scaleLog, scaleUtc } from "d3-scale";
+import { type ScaleContinuousNumeric, scaleBand, scaleLinear, scaleLog, scaleUtc } from "d3-scale";
 import { pointer, select, type Selection } from "d3-selection";
 import { utcFormat } from "d3-time-format";
 import type { Colormap } from "./colormap";
-import { type Cycle, edges, nearestIndex } from "./data";
+import { type Dataset, edges, nearestIndex } from "./data";
 
 type Svg = Selection<SVGSVGElement, unknown, null, undefined>;
 type G = Selection<SVGGElement, unknown, null, undefined>;
@@ -47,18 +48,18 @@ export class ProfileView {
     this.onPickZ = onPickZ;
   }
 
+  /** `profile` undefined: not loaded yet. `bands`: [low, high] per height, drawn on top of each other as context. */
   draw(o: {
-    cycle: Cycle;
-    name: string;
-    lead: number;
-    cell: number;
+    z: number[];
+    profile: Float32Array | undefined;
+    bands: [Float32Array, Float32Array][];
     zi: number;
     heightScale: "log" | "linear";
     xDomain: [number, number];
     xLabel: string;
     fmt: (v: number) => string;
   }) {
-    const { cycle, name, lead, cell, zi } = o;
+    const { z, zi } = o;
     const width = this.el.clientWidth;
     const height = Math.max(240, this.el.clientHeight);
     const pw = width - this.m.left - this.m.right;
@@ -66,7 +67,7 @@ export class ProfileView {
     const svg = svgIn(this.el).attr("width", width).attr("height", height);
     const g = svg.append("g").attr("transform", `translate(${this.m.left},${this.m.top})`);
     const x = scaleLinear().domain(o.xDomain).range([0, pw]).nice();
-    const y = heightScale(o.heightScale, cycle.z).range([ph, 0]);
+    const y = heightScale(o.heightScale, z).range([ph, 0]);
     const yTicks = heightTicks(y, o.heightScale, ph);
 
     g.append("g").attr("class", "grid").call(axisLeft(y).tickValues(yTicks).tickSize(-pw).tickFormat(() => ""));
@@ -79,22 +80,17 @@ export class ProfileView {
     svg.append("clipPath").attr("id", clip).append("rect").attr("width", pw).attr("height", ph);
     const plot = g.append("g").attr("clip-path", `url(#${clip})`);
 
-    // Range over the loaded lead times as context
-    const lo = new Float32Array(cycle.nz).fill(Infinity);
-    const hi = new Float32Array(cycle.nz).fill(-Infinity);
-    for (let l = 0; l < cycle.times.length; l++) {
-      const p = cycle.profile(name, l, cell);
-      if (p) for (let k = 0; k < cycle.nz; k++) if (!Number.isNaN(p[k])) [lo[k], hi[k]] = [Math.min(lo[k], p[k]), Math.max(hi[k], p[k])]; // fmt: skip
+    for (const [lo, hi] of o.bands) {
+      const band = z.map((h, k) => [x(lo[k]), x(hi[k]), y(h)]).filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b)); // fmt: skip
+      if (band.length > 1)
+        plot.append("path").attr("class", "envelope").attr("d", `M${band.map(([a, , c]) => `${a},${c}`).join("L")}L${band.reverse().map(([, b, c]) => `${b},${c}`).join("L")}Z`); // fmt: skip
     }
-    const band = cycle.z.map((z, k) => [x(lo[k]), x(hi[k]), y(z)]).filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b)); // fmt: skip
-    if (band.length > 1)
-      plot.append("path").attr("class", "envelope").attr("d", `M${band.map(([a, , c]) => `${a},${c}`).join("L")}L${band.reverse().map(([, b, c]) => `${b},${c}`).join("L")}Z`); // fmt: skip
 
-    const prof = cycle.profile(name, lead, cell);
-    const sel = cycle.z[zi];
+    const prof = o.profile;
+    const sel = z[zi];
     plot.append("line").attr("class", "z-cursor").attr("x1", 0).attr("x2", pw).attr("y1", y(sel)).attr("y2", y(sel));
     if (prof) {
-      const pts = cycle.z.map((z, k) => [x(prof[k]), y(z)]).filter(([a]) => Number.isFinite(a));
+      const pts = z.map((h, k) => [x(prof[k]), y(h)]).filter(([a]) => Number.isFinite(a));
       plot.append("path").attr("class", "profile").attr("d", pts.length ? `M${pts.join("L")}` : "");
       const v = prof[zi];
       if (!Number.isNaN(v)) {
@@ -109,7 +105,7 @@ export class ProfileView {
     const pick = (ev: PointerEvent | MouseEvent) => {
       const [, py] = pointer(ev, g.node());
       if (py < 0 || py > ph) return;
-      this.onPickZ(nearestIndex(cycle.z, y.invert(py)));
+      this.onPickZ(nearestIndex(z, y.invert(py)));
     };
     const hit = g.append("rect").attr("class", "hit tap").attr("width", pw).attr("height", ph);
     hit.on("pointerdown", (ev: PointerEvent) => {
@@ -147,8 +143,10 @@ export class TimeHeightView {
     el.append(this.canvas, this.svgHost);
   }
 
+  /** `stat`, `band`: statistic shown and the two statistics of the band around it in the strips (climatology).
+   * `stepLabel`: hover text of a step. `months`: one tick per step, labelled with the month. */
   draw(o: {
-    cycle: Cycle;
+    cycle: Dataset;
     name: string;
     cell: number;
     lead: number;
@@ -158,8 +156,12 @@ export class TimeHeightView {
     range: [number, number];
     fmt: (v: number) => string;
     columns: { name: string; label: string; fmt: (v: number) => string }[];
+    stepLabel: (step: number) => string;
+    stat?: string;
+    band?: [string, string];
+    months?: boolean;
   }) {
-    const { cycle, name, cell } = o;
+    const { cycle, name, cell, stat } = o;
     const width = this.el.clientWidth;
     const nStrips = o.columns.length;
     const ph = Math.max(180, Math.round(width * 0.22));
@@ -183,7 +185,7 @@ export class TimeHeightView {
     ctx.clearRect(0, 0, pw, ph);
     const [lo, hi] = o.range;
     for (let l = 0; l < cycle.times.length; l++) {
-      const p = cycle.profile(name, l, cell);
+      const p = cycle.profile(name, l, cell, stat);
       if (!p) continue;
       const x0 = x(tE[l]);
       const x1 = x(tE[l + 1]);
@@ -200,7 +202,8 @@ export class TimeHeightView {
     this.svgHost.innerHTML = "";
     const svg = select(this.svgHost).append("svg").attr("class", "plot").attr("width", width).attr("height", height);
     const g = svg.append("g").attr("transform", `translate(${this.m.left},${this.m.top})`);
-    const xTicks = x.ticks(Math.max(3, Math.floor(pw / 90)));
+    const xTicks = o.months ? cycle.times : x.ticks(Math.max(3, Math.floor(pw / 90)));
+    const tickFormat = o.months ? utcFormat(pw > 420 ? "%b" : "%-m") : timeFormat;
     const yTicks = heightTicks(y, o.heightScale, ph);
     g.append("g").attr("class", "axis").call(axisLeft(y).tickValues(yTicks).tickFormat((d) => formatHeight(+d)));
     g.append("g").attr("class", "axis").attr("transform", `translate(0,${ph})`).call(axisBottom(x).tickValues(xTicks).tickFormat(() => "")); // fmt: skip
@@ -209,14 +212,20 @@ export class TimeHeightView {
     o.columns.forEach((c, s) => {
       const top = ph + this.gap + s * (this.stripH + this.gap);
       const gs = g.append("g").attr("transform", `translate(0,${top})`);
-      const v = cycle.series(c.name, cell);
-      const finite = [...v].filter((a) => !Number.isNaN(a));
+      const v = cycle.series(c.name, cell, stat);
+      const band = o.band?.map((b) => cycle.series(c.name, cell, b));
+      const finite = [...v, ...(band?.flatMap((b) => [...b]) ?? [])].filter((a) => !Number.isNaN(a));
       const ys = scaleLinear().domain(finite.length ? [Math.min(...finite), Math.max(...finite)] : [0, 1]).range([this.stripH, 0]).nice(3); // fmt: skip
       gs.append("g").attr("class", "grid").call(axisLeft(ys).ticks(3).tickSize(-pw).tickFormat(() => ""));
       gs.append("g").attr("class", "axis").call(axisLeft(ys).ticks(3));
       const last = s === nStrips - 1;
       gs.append("g").attr("class", "axis").attr("transform", `translate(0,${this.stripH})`)
-        .call(axisBottom(x).tickValues(xTicks).tickFormat((d) => (last ? timeFormat(d as Date) : ""))); // fmt: skip
+        .call(axisBottom(x).tickValues(xTicks).tickFormat((d) => (last ? tickFormat(d as Date) : ""))); // fmt: skip
+      if (band) {
+        const area = cycle.times.map((t, l) => [x(t), ys(band[0][l]), ys(band[1][l])]).filter(([, a, b]) => Number.isFinite(a) && Number.isFinite(b)); // fmt: skip
+        if (area.length > 1)
+          gs.append("path").attr("class", "envelope").attr("d", `M${area.map(([a, b]) => `${a},${b}`).join("L")}L${area.reverse().map(([a, , c]) => `${a},${c}`).join("L")}Z`); // fmt: skip
+      }
       const pts = cycle.times.map((t, l) => [x(t), ys(v[l])]).filter(([, b]) => Number.isFinite(b));
       gs.append("path").attr("class", "series").attr("d", pts.length ? `M${pts.join("L")}` : "");
       gs.append("text").attr("class", "strip-label").attr("x", 6).attr("y", 12).text(c.label);
@@ -257,19 +266,72 @@ export class TimeHeightView {
         const [dx, dy] = [Math.abs(ev.clientX - start[0]), Math.abs(ev.clientY - start[1])];
         if (dx > 8 && dx > 2 * dy) this.onPick(lead);
       }
-      const t = utcFormat("%a %d %b %H:%M UTC")(cycle.times[lead]);
+      const t = o.stepLabel(lead);
       if (zi === undefined) return this.onHover(t);
-      const p = cycle.profile(name, lead, cell);
+      const p = cycle.profile(name, lead, cell, stat);
       this.onHover(`${t}, ${formatHeight(cycle.z[zi])}: ${p && !Number.isNaN(p[zi]) ? o.fmt(p[zi]) : "–"}`);
     });
     hit.on("pointerleave", () => this.onHover(""));
   }
 
-  setCursor(cycle: Cycle, lead: number, zi: number) {
+  setCursor(cycle: Dataset, lead: number, zi: number) {
     if (!this.cursor) return;
     const tx = this.x(cycle.times[lead]);
     this.cursor.select(".t-cursor").attr("x1", tx).attr("x2", tx);
     const zy = this.y(cycle.z[zi]);
     this.cursor.select(".z-cursor").attr("y1", zy).attr("y2", zy).attr("visibility", zy >= 0 && zy <= this.ph ? "visible" : "hidden"); // fmt: skip
+  }
+}
+
+/** One box: whiskers p5 to p95, box p25 to p75, median line, mean dot. */
+export type BoxStats = Record<"p5" | "p25" | "median" | "p75" | "p95" | "mean", Float32Array>;
+
+/** Diurnal cycle of the climatology: box plots per hour, one plot per variable. */
+export class DiurnalView {
+  private el: HTMLElement;
+  private m = { top: 22, right: 12, bottom: 34, left: 48 };
+  private height = 220;
+
+  constructor(el: HTMLElement) {
+    this.el = el;
+  }
+
+  draw(hours: number[], plots: { label: string; fmt: (v: number) => string; boxes: BoxStats | undefined }[]) {
+    this.el.innerHTML = "";
+    // All hosts first: their widths depend on how many share the grid row
+    const hosts = plots.map(() => this.el.appendChild(document.createElement("div")));
+    for (const [n, p] of plots.entries()) {
+      const host = hosts[n];
+      const width = host.clientWidth;
+      const pw = width - this.m.left - this.m.right;
+      const ph = this.height - this.m.top - this.m.bottom;
+      const svg = select(host).append("svg").attr("class", "plot").attr("width", width).attr("height", this.height);
+      const g = svg.append("g").attr("transform", `translate(${this.m.left},${this.m.top})`);
+      g.append("text").attr("class", "strip-label").attr("x", 0).attr("y", -8).text(p.label);
+      const b = p.boxes;
+      if (!b) continue;
+      const finite = [...b.p5, ...b.p95].filter((v) => !Number.isNaN(v));
+      const x = scaleBand<number>().domain(hours).range([0, pw]).padding(0.35);
+      const y = scaleLinear().domain(finite.length ? [Math.min(...finite), Math.max(...finite)] : [0, 1]).range([ph, 0]).nice(4); // fmt: skip
+      g.append("g").attr("class", "grid").call(axisLeft(y).ticks(4).tickSize(-pw).tickFormat(() => ""));
+      g.append("g").attr("class", "axis").call(axisLeft(y).ticks(4));
+      g.append("g").attr("class", "axis").attr("transform", `translate(0,${ph})`)
+        .call(axisBottom(x).tickFormat((h) => format("02d")(h))); // fmt: skip
+      g.append("text").attr("class", "axis-label").attr("x", pw / 2).attr("y", ph + 30).attr("text-anchor", "middle").text("Hour (UTC)"); // fmt: skip
+
+      hours.forEach((h, k) => {
+        if ([b.p5, b.p25, b.median, b.p75, b.p95].some((a) => Number.isNaN(a[k]))) return;
+        const cx = x(h)! + x.bandwidth() / 2;
+        const box = g.append("g").attr("class", "box");
+        box.append("title").text(
+          `${format("02d")(h)} UTC: median ${p.fmt(b.median[k])}, mean ${p.fmt(b.mean[k])}\n` +
+            `25–75 %: ${p.fmt(b.p25[k])} to ${p.fmt(b.p75[k])}\n5–95 %: ${p.fmt(b.p5[k])} to ${p.fmt(b.p95[k])}`,
+        );
+        box.append("line").attr("class", "whisker").attr("x1", cx).attr("x2", cx).attr("y1", y(b.p5[k])).attr("y2", y(b.p95[k])); // fmt: skip
+        box.append("rect").attr("x", x(h)!).attr("width", x.bandwidth()).attr("y", y(b.p75[k])).attr("height", Math.max(1, y(b.p25[k]) - y(b.p75[k]))); // fmt: skip
+        box.append("line").attr("class", "median").attr("x1", x(h)!).attr("x2", x(h)! + x.bandwidth()).attr("y1", y(b.median[k])).attr("y2", y(b.median[k])); // fmt: skip
+        if (!Number.isNaN(b.mean[k])) box.append("circle").attr("cx", cx).attr("cy", y(b.mean[k])).attr("r", 2.5);
+      });
+    }
   }
 }
