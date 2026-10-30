@@ -100,7 +100,7 @@ export class MapView {
       onHover(cell, cell >= 0 ? e.point : null);
     });
     this.map.on("mouseout", () => onHover(-1, null));
-    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => this.applyTheme());
+    addEventListener("themechange", () => this.applyTheme()); // main.ts (setupTheme)
   }
 
   private applyTheme() {

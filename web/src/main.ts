@@ -1,6 +1,4 @@
-import "@fontsource/roboto/400.css";
-import "@fontsource/roboto/500.css";
-import "@fontsource/roboto/700.css";
+import "@fontsource-variable/inter";
 import "./style.css";
 import { format } from "d3-format";
 import { utcFormat } from "d3-time-format";
@@ -28,6 +26,21 @@ const STAT_LABELS: Record<string, string> = {
   lmean: "Mean of linear Cₙ²",
 };
 const statLabel = (stat: string) => STAT_LABELS[stat] ?? stat;
+/** The statistic buttons with short labels, in two groups (the distribution from low to high, the means): side by side,
+ * or one below the other on narrow screens. */
+const STAT_BUTTONS: [string, string][][] = [
+  [
+    ["p5", "5th"],
+    ["p25", "25th"],
+    ["median", "Median"],
+    ["p75", "75th"],
+    ["p95", "95th"],
+  ],
+  [
+    ["mean", "Mean"],
+    ["lmean", "Lin. mean"],
+  ],
+];
 /** Legend items into `el`: [swatch class (legend i.<class> in style.css), label]. */
 function drawLegend(el: HTMLElement, items: [string, string][]) {
   el.replaceChildren(
@@ -45,18 +58,96 @@ const defined = (h: HashState): HashState => Object.fromEntries(Object.entries(h
 const ICON_PLAY = "M8 5v14l11-7z";
 const ICON_PAUSE = "M6 19h4V5H6v14zm8-14v14h4V5h-4z";
 const fill = (input: HTMLInputElement) =>
-  input.style.setProperty("--pct", `${(100 * +input.value) / Math.max(1, +input.max)}%`);
+  input.style.setProperty("--pct", `${(100 * (+input.value - +input.min)) / Math.max(1, +input.max - +input.min)}%`);
+const SPEEDS: [number, string][] = [[2, "0.5×"], [1, "1×"], [0.5, "2×"], [0.25, "4×"]]; // interval factor, label
+const TH_HINT = "Hover for values, click to select a time and height";
+const DISCLAIMER_KEY = "otprof-live.disclaimer"; // localStorage: "closed" once the banner was collapsed
+const INDEX_POLL_MS = 10 * 60 * 1000; // new forecast runs: checked every 10 min
+/** A cycle directory name (YYYYMMDDHH) as e.g. "Fri 30 Oct, 00 UTC". */
+function fmtCycle(id: string): string {
+  const m = /^(\d{4})(\d{2})(\d{2})(\d{2})$/.exec(id);
+  return m ? utcFormat("%a %d %b, %H UTC")(new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4]))) : id;
+}
+/** The step of the current hour: the first time from it on, or the last time if all are earlier. */
+function nowStep(times: Date[]): number {
+  const k = futureStep(times);
+  return k < 0 ? times.length - 1 : k;
+}
+/** Index of the first time from the current hour (floored) on, -1 if all are earlier. */
+function futureStep(times: Date[]): number {
+  const hour = Math.floor(Date.now() / 3.6e6) * 3.6e6;
+  return times.findIndex((t) => t.getTime() >= hour);
+}
+
+/** Theme switch (system / light / dark), stored per browser. The theme is `data-theme` on <html> (light / dark; set
+ * before the first paint by public/theme.js); "system" follows the system setting while the page is open. Fires
+ * `themechange` on window for what reads colours in code (the map). */
+function setupTheme() {
+  const KEY = "otprof-live.theme";
+  const system = matchMedia("(prefers-color-scheme: dark)");
+  let choice = "system";
+  try {
+    choice = localStorage.getItem(KEY) ?? "system";
+  } catch {
+    // no storage: as the system
+  }
+  const buttons = [...$("theme-switch").querySelectorAll<HTMLButtonElement>("button")];
+  const apply = () => {
+    const dark = choice === "dark" || (choice === "system" && system.matches);
+    const theme = dark ? "dark" : "light";
+    for (const b of buttons) b.setAttribute("aria-pressed", String(b.dataset.theme === choice));
+    if (document.documentElement.dataset.theme === theme) return;
+    document.documentElement.dataset.theme = theme;
+    dispatchEvent(new Event("themechange"));
+  };
+  for (const b of buttons)
+    b.addEventListener("click", () => {
+      choice = b.dataset.theme!;
+      try {
+        if (choice === "system") localStorage.removeItem(KEY);
+        else localStorage.setItem(KEY, choice);
+      } catch {
+        // not remembered
+      }
+      apply();
+    });
+  system.addEventListener("change", apply);
+  apply();
+}
+
+/** The disclaimer as a collapsible banner: its first heading is the summary; collapsed stays collapsed. */
+async function setupDisclaimer(url: string) {
+  const el = $<HTMLDetailsElement>("disclaimer");
+  if (!(await renderNotes($("disclaimer-text"), [url]))) return;
+  const heading = $("disclaimer-text").querySelector("h1, h2, h3, h4");
+  if (heading) {
+    $("disclaimer-title").textContent = heading.textContent;
+    heading.remove();
+  }
+  try {
+    el.open = localStorage.getItem(DISCLAIMER_KEY) !== "closed";
+  } catch {
+    // no storage: open
+  }
+  el.addEventListener("toggle", () => {
+    try {
+      localStorage.setItem(DISCLAIMER_KEY, el.open ? "open" : "closed");
+    } catch {
+      // not remembered
+    }
+  });
+  el.hidden = false;
+}
 
 async function main() {
+  setupTheme();
   const config = await loadConfig();
   document.title = config.title;
   $("title").textContent = config.title;
   $("subtitle").textContent = config.subtitle ?? "";
-  if (config.disclaimer)
-    void renderNotes($("disclaimer-text"), [new URL(config.disclaimer, location.href).href]).then(
-      (any) => ($("disclaimer").hidden = !any),
-    );
-  const index = await loadIndex(config.dataUrl);
+  if (config.disclaimer) void setupDisclaimer(new URL(config.disclaimer, location.href).href);
+  let index = await loadIndex(config.dataUrl);
+  const latestCycle = () => index.latest ?? index.cycles[0];
   const climUrl = index.climatology ? new URL(index.climatology, config.dataUrl).href : undefined;
   const hash = parseHash(location.hash);
 
@@ -66,7 +157,7 @@ async function main() {
   const openCycle = async (id: string) => (cycle = await Cycle.open(config.dataUrl, id));
   let climLoad: Promise<Climatology> | undefined;
   const openClim = () => (climLoad ??= Climatology.open(climUrl!).then((c) => (clim = c)));
-  const firstCycle = hash.cycle && index.cycles.includes(hash.cycle) ? hash.cycle : (index.latest ?? index.cycles[0]);
+  const firstCycle = hash.cycle && index.cycles.includes(hash.cycle) ? hash.cycle : latestCycle();
   let data: Dataset = hash.mode === "clim" && climUrl ? await openClim() : await openCycle(firstCycle);
   const climOf = (d: Dataset) => (d instanceof Climatology ? d : undefined);
   /** Lead hours shown when the forecast was left for the climatology */
@@ -145,8 +236,8 @@ async function main() {
     const cl = climOf(c);
     return {
       variable: d.variable && names.includes(d.variable) ? d.variable : names[0],
-      // Now: the climatology of this month, the forecast's lead time closest to the current time
-      lead: cl ? nearestIndex(cl.meta.months, new Date().getUTCMonth() + 1) : nearestIndex(c.times.map((t) => t.getTime()), Date.now()), // fmt: skip
+      // Now: the climatology of this month, the forecast from the current hour on (or its last time if all is past)
+      lead: cl ? nearestIndex(cl.meta.months, new Date().getUTCMonth() + 1) : nowStep(c.times),
       zi: c.nz ? nearestIndex(c.z, d.z ?? 100) : 0,
       cell: cell >= 0 ? cell : c.nearestCell(c.lat[c.nlat >> 1], c.lon[c.nlon >> 1]),
       stat: "median",
@@ -162,6 +253,16 @@ async function main() {
     colourPerHeight: config.colourPerHeight,
   });
   const st = () => store.state;
+
+  /** First step of the time axis: a forecast is shown from the current hour on, unless `explicit` (the URL) asks for
+   * an earlier time; then, and if all of it is past, from its start. */
+  let firstStep = 0;
+  const limitSteps = (lead: number, explicit: boolean): number => {
+    const k = data instanceof Cycle ? futureStep(data.times) : 0;
+    firstStep = k < 0 || (explicit && lead < k) ? 0 : k;
+    return Math.max(lead, firstStep);
+  };
+  store.state.lead = limitSteps(st().lead, hash.leadHours !== undefined);
 
   // Views
   const tooltip = $("map-tooltip");
@@ -183,7 +284,7 @@ async function main() {
   const thView = new TimeHeightView(
     $("timeheight"),
     (lead, zi) => store.set(zi === undefined ? { lead, playing: false } : { lead, zi, playing: false }),
-    (text) => ($("th-hover").textContent = text),
+    (text) => ($("th-hover").textContent = text || TH_HINT),
   );
   const diurnalView = new DiurnalView($("diurnal"));
 
@@ -193,9 +294,11 @@ async function main() {
   const play = $<HTMLButtonElement>("play");
   const logHeight = $<HTMLInputElement>("log-height");
   const colourZ = $<HTMLInputElement>("colour-z");
-  const speed = $<HTMLSelectElement>("speed");
+  const speed = $<HTMLButtonElement>("speed");
+  let speedIndex = 1;
+  const newer = $<HTMLButtonElement>("newer");
   const cycleSelect = $<HTMLSelectElement>("cycle-select");
-  const statSelect = $<HTMLSelectElement>("stat");
+  const statGroup = $("stat");
   // Touch: the thumb jumps on touch down; restore it when the gesture becomes a page scroll (pointercancel)
   for (const input of [timeInput, heightInput]) {
     let before: string | null = null;
@@ -216,9 +319,27 @@ async function main() {
   logHeight.addEventListener("change", () => store.set({ heightScale: logHeight.checked ? "log" : "linear" }));
   colourZ.checked = st().colourPerHeight;
   colourZ.addEventListener("change", () => store.set({ colourPerHeight: colourZ.checked }));
-  for (const id of index.cycles) cycleSelect.add(new Option(id, id));
+  speed.addEventListener("click", () => {
+    speedIndex = (speedIndex + 1) % SPEEDS.length;
+    speed.textContent = SPEEDS[speedIndex][1];
+  });
+  const fillCycles = () => cycleSelect.replaceChildren(...index.cycles.map((id) => new Option(fmtCycle(id), id)));
+  fillCycles();
   cycleSelect.addEventListener("change", () => switchCycle(cycleSelect.value, physical()));
-  statSelect.addEventListener("change", () => store.set({ stat: statSelect.value }));
+  // The newest run, at the current time (the rest of the view stays)
+  newer.addEventListener("click", () => void switchCycle(latestCycle(), { ...physical(), leadHours: undefined }));
+  setInterval(async () => {
+    try {
+      const fresh = await loadIndex(config.dataUrl);
+      if (fresh.cycles.join() === index.cycles.join()) return;
+      index = fresh;
+      fillCycles();
+      if (data instanceof Cycle) cycleSelect.value = data.id;
+      renderControls();
+    } catch (e) {
+      console.warn("Checking for new forecasts failed:", e);
+    }
+  }, INDEX_POLL_MS);
   $("mode-tabs").hidden = !climUrl;
   for (const b of $("diurnal-kind").querySelectorAll<HTMLButtonElement>("button"))
     b.addEventListener("click", () => store.set({ diurnalKind: b.dataset.kind as State["diurnalKind"] }));
@@ -250,7 +371,21 @@ async function main() {
     $("diurnal-panel").hidden = !c;
     $("time-name").textContent = c ? "Month" : "Time";
     document.querySelector(".layout")!.classList.toggle("clim", !!c);
-    if (c && !statSelect.options.length) for (const stat of c.meta.stats) statSelect.add(new Option(statLabel(stat), stat));
+    if (c && !statGroup.childElementCount)
+      for (const buttons of STAT_BUTTONS) {
+        const group = document.createElement("div");
+        group.className = "segmented";
+        for (const [stat, text] of buttons.filter(([k]) => c.meta.stats.includes(k))) {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.dataset.stat = stat;
+          b.textContent = text;
+          b.title = statLabel(stat);
+          b.addEventListener("click", () => store.set({ stat }));
+          group.append(b);
+        }
+        if (group.childElementCount) statGroup.append(group);
+      }
     buildVariableSwitch();
     const info = $("info");
     info.innerHTML = "";
@@ -349,6 +484,7 @@ async function main() {
       bands,
       reference,
       zi: s.zi,
+      showZ: data.profileVars.includes(s.variable),
       heightScale: s.heightScale,
       xDomain,
       xLabel: fullLabel(pv),
@@ -377,6 +513,8 @@ async function main() {
       fmt: fmt(pv),
       columns: data.columnVars.map((name) => ({ name, label: fullLabel(name), fmt: fmt(name) })),
       stepLabel,
+      from: firstStep,
+      showZ: data.profileVars.includes(s.variable),
       stat: c ? s.stat : undefined,
       band: c ? ["p25", "p75"] : undefined,
       months: !!c,
@@ -425,35 +563,44 @@ async function main() {
 
   function renderControls() {
     const s = st();
+    timeInput.min = String(firstStep);
     timeInput.value = String(s.lead);
     $("time-label").textContent = stepLabel(s.lead);
     heightInput.value = String(s.zi);
     heightInput.disabled = !data.nz;
     $("height-label").textContent = data.nz ? formatHeight(data.z[s.zi]) : "–";
-    $("height-group").classList.toggle("secondary", !data.profileVars.includes(s.variable));
-    $("height-group").title = data.profileVars.includes(s.variable) ? "" : "Column value on the map: the height applies to the profile";
+    // Column-integrated variables on the map: no height to choose (the profile's is picked in its plots)
+    $("height-group").hidden = !data.profileVars.includes(s.variable);
     fill(timeInput);
     fill(heightInput);
     $("play-icon").setAttribute("d", s.playing ? ICON_PAUSE : ICON_PLAY);
     play.setAttribute("aria-label", s.playing ? "Pause" : "Play");
     for (const b of $("var-switch").querySelectorAll("button"))
       b.setAttribute("aria-pressed", String(b.dataset.name === s.variable));
-    colourZ.disabled = !data.profileVars.includes(s.variable);
+    $("colour-z-group").hidden = !data.profileVars.includes(s.variable);
+    const latest = latestCycle();
+    newer.hidden = !(data instanceof Cycle) || data.id === latest;
+    newer.title = `A newer forecast is available (${fmtCycle(latest)}): show it`;
     for (const b of $("mode-tabs").querySelectorAll("button"))
       b.setAttribute("aria-selected", String(b.dataset.mode === s.mode));
     const c = climOf(data);
     if (c) {
-      statSelect.value = s.stat;
-      for (const o of statSelect.options) o.disabled = !c.stats(s.variable).includes(o.value);
+      for (const b of statGroup.querySelectorAll<HTMLButtonElement>("button")) {
+        const has = c.stats(s.variable).includes(b.dataset.stat!);
+        b.disabled = !has;
+        b.title = has ? statLabel(b.dataset.stat!) : `${statLabel(b.dataset.stat!)}: not available for ${label(s.variable)}`;
+        b.setAttribute("aria-pressed", String(b.dataset.stat === statFor(s.variable)));
+      }
     }
   }
 
   function renderStatus() {
-    const n = data.loadedCount;
+    const total = data.times.length - firstStep;
+    const n = data.loadedCount(firstStep);
     const bar = $("progress");
-    bar.hidden = n >= data.times.length;
-    bar.title = `Loading ${climOf(data) ? "months" : "lead times"}: ${n}/${data.times.length}`;
-    (bar.firstElementChild as HTMLElement).style.width = `${(100 * n) / data.times.length}%`;
+    bar.hidden = n >= total;
+    bar.title = `Loading ${climOf(data) ? "months" : "lead times"}: ${n}/${total}`;
+    (bar.firstElementChild as HTMLElement).style.width = `${(100 * n) / total}%`;
   }
 
   // Playback: waits for lead times that are not loaded yet
@@ -462,13 +609,13 @@ async function main() {
     clearTimeout(playTimer);
     if (!st().playing) return;
     playTimer = window.setTimeout(async () => {
-      const next = (st().lead + 1) % data.times.length;
+      const next = st().lead + 1 < data.times.length ? st().lead + 1 : firstStep;
       await data.loadStep(next);
       if (st().playing) {
         store.set({ lead: next });
         schedulePlay();
       }
-    }, config.playIntervalMs * +speed.value);
+    }, config.playIntervalMs * SPEEDS[speedIndex][0]);
   }
 
   store.subscribe((s, ch) => {
@@ -499,33 +646,35 @@ async function main() {
       lon: s.cell >= 0 ? data.lon[s.cell % data.nlon] : undefined,
     });
   };
-  async function switchTo(next: Dataset, h: HashState) {
+  /** Show `next` at the physical view `h`; `explicit`: `h` comes from the URL (it may ask for past times). */
+  async function switchTo(next: Dataset, h: HashState, explicit = false) {
     store.set({ playing: false });
     data = next;
     cmaps.clear();
     setupData();
     await mapView.setCycle(data);
     const r = resolve(h, data, fallback(data));
+    r.lead = limitSteps(r.lead, explicit && (h.leadHours !== undefined || h.month !== undefined));
     store.state = { ...st(), mode: climOf(data) ? "clim" : "live", ...(data instanceof Cycle && { cycle: data.id }), ...r }; // fmt: skip
     await data.loadStep(r.lead);
     renderAll();
-    void data.loadAll(r.lead);
+    void data.loadAll(r.lead, firstStep);
   }
-  async function switchCycle(id: string, h: HashState) {
-    await switchTo(await openCycle(id), h);
+  async function switchCycle(id: string, h: HashState, explicit = false) {
+    await switchTo(await openCycle(id), h, explicit);
   }
   /** The climatology opens at the month of the forecast time shown; the forecast at the lead time it was left at. */
-  async function switchMode(mode: Mode, extra: HashState = {}) {
+  async function switchMode(mode: Mode, extra: HashState = {}, explicit = false) {
     if (mode === st().mode || (mode === "clim" && !climUrl)) return;
     const h = physical();
     if (mode === "clim") {
       liveLeadHours = h.leadHours;
       if (data instanceof Cycle) h.month = data.times[st().lead].getUTCMonth() + 1;
-      return switchTo(await openClim(), { ...h, ...defined(extra) });
+      return switchTo(await openClim(), { ...h, ...defined(extra) }, explicit);
     }
     const id = extra.cycle && index.cycles.includes(extra.cycle) ? extra.cycle : st().cycle;
     const next = cycle?.id === id ? cycle : await openCycle(id);
-    await switchTo(next, { ...h, leadHours: liveLeadHours, ...defined(extra) });
+    await switchTo(next, { ...h, leadHours: liveLeadHours, ...defined(extra) }, explicit);
   }
   function renderAll() {
     const s = st();
@@ -542,9 +691,17 @@ async function main() {
   // Links in the notes and edits of the URL
   addEventListener("hashchange", () => {
     const h = parseHash(location.hash);
-    if (h.mode && h.mode !== st().mode) return void switchMode(h.mode, h);
-    if (data instanceof Cycle && h.cycle && h.cycle !== data.id && index.cycles.includes(h.cycle)) return void switchCycle(h.cycle, { ...physical(), ...defined(h) }); // fmt: skip
-    store.set({ ...resolve(h, data, { ...st() }), playing: false });
+    if (h.mode && h.mode !== st().mode) return void switchMode(h.mode, h, true);
+    if (data instanceof Cycle && h.cycle && h.cycle !== data.id && index.cycles.includes(h.cycle)) return void switchCycle(h.cycle, { ...physical(), ...defined(h) }, true); // fmt: skip
+    const before = firstStep;
+    const r = resolve(h, data, { ...st() });
+    r.lead = limitSteps(r.lead, h.leadHours !== undefined);
+    store.set({ ...r, playing: false });
+    if (firstStep !== before) {
+      renderTimeHeight();
+      renderControls();
+      void data.loadAll(r.lead, firstStep);
+    }
   });
 
   addEventListener("keydown", (e) => {
@@ -554,8 +711,8 @@ async function main() {
     const n = data.times.length;
     const step: Record<string, () => Partial<State>> = {
       " ": () => ({ playing: !s.playing }),
-      ArrowRight: () => ({ lead: (s.lead + 1) % n, playing: false }),
-      ArrowLeft: () => ({ lead: (s.lead - 1 + n) % n, playing: false }),
+      ArrowRight: () => ({ lead: s.lead + 1 < n ? s.lead + 1 : firstStep, playing: false }),
+      ArrowLeft: () => ({ lead: s.lead > firstStep ? s.lead - 1 : n - 1, playing: false }),
       ArrowUp: () => ({ zi: Math.min(data.nz - 1, s.zi + 1) }),
       ArrowDown: () => ({ zi: Math.max(0, s.zi - 1) }),
     };
@@ -582,7 +739,8 @@ async function main() {
   await mapView.setCycle(data);
   await data.loadStep(st().lead);
   renderAll();
-  void data.loadAll(st().lead);
+  $("th-hover").textContent = TH_HINT;
+  void data.loadAll(st().lead, firstStep);
   // The climatology behind the forecast profile
   if (climUrl && !clim) void openClim().then(() => data instanceof Cycle && renderProfile());
 }

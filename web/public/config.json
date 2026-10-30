@@ -25,7 +25,8 @@
     "lsi2": {
       "label": "log₁₀ σᵢ²",
       "units": "1",
-      "colormap": "inferno",
+      "colormap": "YlGnBu",
+      "reverse": true,
       "format": ".2f"
     }
   },

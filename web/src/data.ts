@@ -181,10 +181,10 @@ export abstract class Dataset {
     for (let k = 0; k < arr.length; k++) if (!Number.isNaN(arr[k])) this.valid[k % n] = 1;
   }
 
-  /** All steps, starting at `first` and wrapping around. */
-  async loadAll(first: number) {
-    const n = this.times.length;
-    const order = Array.from({ length: n }, (_, k) => (first + k) % n);
+  /** All steps from `from` on, starting at `first` and wrapping around. */
+  async loadAll(first: number, from = 0) {
+    const n = this.times.length - from;
+    const order = Array.from({ length: n }, (_, k) => from + ((first - from + k) % n));
     const worker = async () => {
       for (let step = order.shift(); step !== undefined; step = order.shift()) await this.loadStep(step);
     };
@@ -195,8 +195,9 @@ export abstract class Dataset {
     this.listeners.push(f);
   }
 
-  get loadedCount(): number {
-    return this.times.reduce((c, _, step) => c + (this.hasStep(step) ? 1 : 0), 0);
+  /** Number of steps from `from` on that are loaded. */
+  loadedCount(from = 0): number {
+    return this.times.reduce((c, _, step) => c + (step >= from && this.hasStep(step) ? 1 : 0), 0);
   }
 
   /** Index of the statistic `stat` of a variable (0 without statistics or if it has not got `stat`) and their number. */

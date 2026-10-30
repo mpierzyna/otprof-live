@@ -5,107 +5,133 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>OTProf live</title>
     <link rel="icon" href="data:," />
+    <script src="theme.js"></script>
   </head>
   <body>
-    <header class="appbar">
-      <div class="toolbar">
-        <div class="brand">
-          <h1 id="title">OTProf live</h1>
-          <span id="subtitle"></span>
-        </div>
-        <div id="var-switch" class="toggle-group" role="group" aria-label="Variable"></div>
-        <label class="appbar-select" id="cycle-group">
-          <span>Forecast</span>
-          <select id="cycle-select"></select>
-        </label>
+    <header class="page-header">
+      <a id="home" class="brand" href="." title="Start over: newest forecast from now on, default view">
+        <h1 id="title">OTProf live</h1>
+      </a>
+      <p id="subtitle"></p>
+      <div id="theme-switch" class="segmented small theme-switch" role="group" aria-label="Colour theme">
+        <button type="button" data-theme="system" title="Theme: as the system">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 3H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h5v2H7v2h10v-2h-2v-2h5a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 13H4V5h16v11z" /></svg>
+        </button>
+        <button type="button" data-theme="light" title="Theme: light">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM2 13h2a1 1 0 0 0 0-2H2a1 1 0 0 0 0 2zm18 0h2a1 1 0 0 0 0-2h-2a1 1 0 0 0 0 2zM11 2v2a1 1 0 0 0 2 0V2a1 1 0 0 0-2 0zm0 18v2a1 1 0 0 0 2 0v-2a1 1 0 0 0-2 0zM5.99 4.58a1 1 0 0 0-1.41 1.41l1.06 1.06a1 1 0 0 0 1.41-1.41L5.99 4.58zm12.37 12.37a1 1 0 0 0-1.41 1.41l1.06 1.06a1 1 0 0 0 1.41-1.41l-1.06-1.06zm1.06-10.96a1 1 0 0 0-1.41-1.41l-1.06 1.06a1 1 0 0 0 1.41 1.41l1.06-1.06zM7.05 18.36a1 1 0 0 0-1.41-1.41l-1.06 1.06a1 1 0 0 0 1.41 1.41l1.06-1.06z" /></svg>
+        </button>
+        <button type="button" data-theme="dark" title="Theme: dark">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.39 5.39 0 0 1-4.4 2.26 5.4 5.4 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z" /></svg>
+        </button>
       </div>
+    </header>
+    <div class="tabbar">
       <nav id="mode-tabs" class="tabs" role="tablist" aria-label="View" hidden>
         <button type="button" role="tab" data-mode="live">Live forecast</button>
         <button type="button" role="tab" data-mode="clim">Climatology</button>
       </nav>
       <div id="progress" class="progress" role="progressbar" aria-label="Loading" hidden><div></div></div>
-    </header>
+    </div>
 
     <main class="layout">
-      <aside id="disclaimer" class="alert alert-error" role="note" hidden>
-        <svg class="alert-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
-        </svg>
-        <div id="disclaimer-text" class="alert-message markdown"></div>
-      </aside>
+      <details id="disclaimer" class="banner" role="note" hidden open>
+        <summary>
+          <svg class="banner-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
+          </svg>
+          <span id="disclaimer-title">Disclaimer</span>
+          <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z" /></svg>
+        </summary>
+        <div id="disclaimer-text" class="markdown"></div>
+      </details>
+
+      <section class="card controls" aria-label="What, when and where">
+        <div class="controls-row">
+          <div id="var-switch" class="segmented" role="group" aria-label="Variable"></div>
+          <div id="cycle-group" class="field-group">
+            <label class="field">
+              <span>Forecast run</span>
+              <select id="cycle-select"></select>
+            </label>
+            <button id="newer" class="newer-button" type="button" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M21 10.12h-6.78l2.74-2.82c-2.73-2.7-7.15-2.8-9.88-.1a6.88 6.88 0 0 0 0 9.8 7.02 7.02 0 0 0 9.88 0C18.32 15.65 19 14.08 19 12.1h2c0 1.98-.88 4.55-2.64 6.29-3.51 3.48-9.21 3.48-12.72 0-3.5-3.47-3.53-9.11-.02-12.58a8.98 8.98 0 0 1 12.65 0L21 3v7.12zM12.5 8v4.25l3.5 2.08-.72 1.21L11 13V8h1.5z" />
+              </svg>
+              <span>Newer run</span>
+            </button>
+          </div>
+          <div class="field" id="stat-group" title="Statistic of the climatology on the map, in the profile and over the year" hidden>
+            <span>Statistic</span>
+            <div id="stat" class="stat-groups" role="group" aria-label="Statistic"></div>
+          </div>
+        </div>
+        <div class="controls-row">
+          <div class="player">
+            <button id="play" class="fab" type="button" aria-label="Play" title="Play / pause (space)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path id="play-icon" d="M8 5v14l11-7z" /></svg>
+            </button>
+            <button id="speed" class="chip-button" type="button" title="Playback speed (click to change)">1×</button>
+          </div>
+          <div class="slider">
+            <label for="time" id="time-name">Time</label>
+            <output id="time-label"></output>
+            <input id="time" type="range" min="0" max="0" step="1" value="0" />
+          </div>
+          <div class="slider" id="height-group">
+            <label for="height">Height</label>
+            <output id="height-label"></output>
+            <input id="height" type="range" min="0" max="0" step="1" value="0" />
+          </div>
+        </div>
+      </section>
 
       <section class="card map-panel" aria-label="Map">
         <div id="map"></div>
-        <div id="colorbar" class="colorbar overlay"></div>
+        <div class="map-legend overlay">
+          <div id="colorbar" class="colorbar"></div>
+          <label class="switch small" id="colour-z-group" title="Colour scale per height: log₁₀ Cₙ² spans orders of magnitude over the column">
+            <input id="colour-z" type="checkbox" role="switch" /> Scale per height
+          </label>
+        </div>
         <div id="map-tooltip" class="tooltip" hidden></div>
       </section>
 
       <section class="card profile-panel" aria-label="Vertical profile">
         <div class="card-header">
-          <h2 id="profile-title">Profile</h2>
+          <div class="card-title-row">
+            <h2 id="profile-title">Profile</h2>
+            <label class="filter-chip" title="Logarithmic height axis of the profile and the time-height plot">
+              <input id="log-height" type="checkbox" /> Log height
+            </label>
+          </div>
           <div id="profile-sub" class="subheader"></div>
           <div id="column-values" class="chips"></div>
-          <div id="profile-legend" class="legend"></div>
         </div>
         <div id="profile" class="plot-host"></div>
-      </section>
-
-      <section class="card controls" aria-label="Time and height">
-        <button id="play" class="fab" type="button" aria-label="Play" title="Play / pause (space)">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path id="play-icon" d="M8 5v14l11-7z" /></svg>
-        </button>
-        <div class="slider">
-          <label for="time" id="time-name">Time</label>
-          <input id="time" type="range" min="0" max="0" step="1" value="0" />
-          <output id="time-label"></output>
-        </div>
-        <div class="slider" id="height-group">
-          <label for="height">Height</label>
-          <input id="height" type="range" min="0" max="0" step="1" value="0" />
-          <output id="height-label"></output>
-        </div>
-        <div class="options">
-          <label class="outlined-select" id="stat-group" title="Statistic of the climatology shown on the map, in the profile and over the year" hidden>
-            <span>Statistic</span>
-            <select id="stat"></select>
-          </label>
-          <label class="outlined-select" title="Playback speed">
-            <span>Speed</span>
-            <select id="speed">
-              <option value="2">0.5×</option>
-              <option value="1" selected>1×</option>
-              <option value="0.5">2×</option>
-              <option value="0.25">4×</option>
-            </select>
-          </label>
-          <label class="switch" title="Height axis of the profile and time-height plots">
-            <input id="log-height" type="checkbox" role="switch" /> Log height
-          </label>
-          <label class="switch" title="Map colour scale per height (lcn2 spans orders of magnitude over the column)">
-            <input id="colour-z" type="checkbox" role="switch" /> Colour scale per height
-          </label>
-        </div>
+        <div id="profile-legend" class="legend"></div>
       </section>
 
       <section class="card th-panel" aria-label="Time-height plot">
-        <div class="card-header row">
+        <div class="card-header">
           <h2 id="th-title">Forecast at the selected point</h2>
-          <span id="th-hover" class="subheader"></span>
+          <div id="th-hover" class="subheader">Hover for values, click to select a time and height</div>
         </div>
         <div id="timeheight"></div>
         <div id="th-colorbar" class="colorbar"></div>
       </section>
 
       <section id="diurnal-panel" class="card diurnal-panel" aria-label="Diurnal cycle" hidden>
-        <div class="card-header row">
-          <h2 id="diurnal-title">Diurnal cycle</h2>
-          <div id="diurnal-kind" class="toggle-group on-paper" role="group" aria-label="Plot type">
-            <button type="button" data-kind="box">Box</button>
-            <button type="button" data-kind="violin">Violin</button>
+        <div class="card-header">
+          <div class="card-title-row">
+            <h2 id="diurnal-title">Diurnal cycle</h2>
+            <div id="diurnal-kind" class="segmented small" role="group" aria-label="Plot type">
+              <button type="button" data-kind="box">Box</button>
+              <button type="button" data-kind="violin">Violin</button>
+            </div>
           </div>
-          <div id="diurnal-legend" class="legend"></div>
         </div>
         <div id="diurnal" class="diurnal"></div>
+        <div id="diurnal-legend" class="legend"></div>
       </section>
 
       <section class="card notes-panel" aria-label="Notes">
