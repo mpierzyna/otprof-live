@@ -36,4 +36,4 @@ fi
 echo "Synced ${SRC} to ${REMOTE}"
 
 # Remove running dir symlink 
-rm data/running
+rm "${HERE}/data/running"

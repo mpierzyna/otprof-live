@@ -5,13 +5,14 @@ from otprof.models import sqf_h
 from otprof.predict import load_model, predict
 from otprof.sources import gfs
 
-from shared import RUNNING_DIR, logger, to_netcdf
+from shared import CYCLE_FORMAT, RUNNING_DIR, get_running_cycle, logger, to_netcdf
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     logger.info("Loading GFS data...")
-    ds = xr.open_mfdataset(str(RUNNING_DIR / "1_raw" / "gfs_*.nc"), engine="h5netcdf")
+    cycle_str = get_running_cycle().strftime(CYCLE_FORMAT)
+    ds = xr.open_mfdataset(str(RUNNING_DIR / "1_raw" / f"gfs_{cycle_str}+*.nc"), engine="h5netcdf")
     ds = gfs.standardize(ds)
 
     out_dir = RUNNING_DIR / "2_prediction"
