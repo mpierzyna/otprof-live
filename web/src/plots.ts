@@ -318,19 +318,24 @@ export class TimeHeightView {
       return { lead, zi };
     };
     let start: [number, number] | null = null; // touch: scrub only once the drag is clearly horizontal
+    // Without a step selected (lead -1), the time cursor follows the mouse or the finger instead
+    const follow = (lead: number) => o.lead < 0 && this.moveT(cycle, lead);
     hit.on("pointerdown", (ev: PointerEvent) => {
+      follow(at(ev).lead);
       if (ev.pointerType !== "mouse") return void (start = [ev.clientX, ev.clientY]);
       (ev.target as Element).setPointerCapture(ev.pointerId);
       const { lead, zi } = at(ev);
       this.onPick(lead, zi);
     });
-    hit.on("pointerup pointercancel", () => (start = null));
+    hit.on("pointerup", () => (start = null));
+    hit.on("pointercancel", () => ((start = null), follow(-1))); // touch: the page scrolls
     hit.on("click", (ev: MouseEvent) => {
       const { lead, zi } = at(ev);
       this.onPick(lead, zi);
     });
     hit.on("pointermove", (ev: PointerEvent) => {
       const { lead, zi } = at(ev);
+      if (ev.pointerType === "mouse" || start) follow(lead);
       if (ev.pointerType === "mouse" && ev.buttons) this.onPick(lead, zi);
       if (ev.pointerType !== "mouse" && start) {
         const [dx, dy] = [Math.abs(ev.clientX - start[0]), Math.abs(ev.clientY - start[1])];
@@ -348,15 +353,20 @@ export class TimeHeightView {
       const p = cycle.profile(name, lead, cell, stat);
       this.onHover(`${t}, ${formatHeight(cycle.z[zi])}: ${p && !Number.isNaN(p[zi]) ? o.fmt(tf(p[zi])) : "–"}`);
     });
-    hit.on("pointerleave", () => this.onHover(""));
+    hit.on("pointerleave", () => (this.onHover(""), follow(-1)));
   }
 
   setCursor(cycle: Steps, lead: number, zi: number) {
     if (!this.cursor) return;
-    const tx = lead >= 0 ? this.x(cycle.times[lead]) : 0;
-    this.cursor.select(".t-cursor").attr("x1", tx).attr("x2", tx).attr("visibility", lead >= 0 ? "visible" : "hidden");
+    this.moveT(cycle, lead);
     const zy = this.y(cycle.z[zi]);
     this.cursor.select(".z-cursor").attr("y1", zy).attr("y2", zy).attr("visibility", this.showZ && zy >= 0 && zy <= this.ph ? "visible" : "hidden"); // fmt: skip
+  }
+
+  /** The time cursor at step `lead`, hidden for -1. */
+  private moveT(cycle: Steps, lead: number) {
+    const tx = lead >= 0 ? this.x(cycle.times[lead]) : 0;
+    this.cursor?.select(".t-cursor").attr("x1", tx).attr("x2", tx).attr("visibility", lead >= 0 ? "visible" : "hidden"); // fmt: skip
   }
 }
 

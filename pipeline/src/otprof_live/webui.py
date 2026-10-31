@@ -31,6 +31,9 @@ CLIM_STATS = ["median", "mean", "p5", "p25", "p75", "p95"]  # the box statistics
 # the log10 of the geometric mean), and their violins also come in linear values (`violin_linear`). The percentiles of
 # the linear values are those of the log10 (stored once, as log10: uint16 keeps their precision).
 LINEAR = {"lcn2": "cn2", "lsi2": "si2"}
+# Resolution of the stored values (forecast and climatology): log10 Cn2 to 0.01 (2.3 % in Cn2, below the model's
+# error; the noise of a finer one does not compress: ~2.5 x larger with gzip). Others: the finest their range allows.
+RESOLUTION = {"lcn2": 0.01}
 CLIM_NOTES = """\
 ## Climatology
 
@@ -43,10 +46,11 @@ Months with few years in the sample (listed above the profile) are less represen
 """
 
 
-def quantize(vals: np.ndarray) -> tuple[np.ndarray, dict]:
-    """`vals` as uint16 with scale and offset from their range (NaN = fill), and the encoding keys of the variable."""
+def quantize(vals: np.ndarray, resolution: float | None = None) -> tuple[np.ndarray, dict]:
+    """`vals` as uint16 with scale and offset from their range (NaN = fill), and the encoding keys of the variable.
+    `resolution`: the scale (coarser than the range allows: compresses better), else the finest for the range."""
     lo, hi = float(np.nanmin(vals)), float(np.nanmax(vals))
-    scale = (hi - lo) / (FILL - 1) or 1.0
+    scale = max(resolution or 0.0, (hi - lo) / (FILL - 1)) or 1.0
     stored = np.where(np.isnan(vals), FILL, np.round((vals - lo) / scale)).astype("<u2")
     return stored, {"dtype": "uint16", "scale": scale, "offset": lo, "fill": FILL, "valid_range": [lo, hi]}
 
@@ -60,7 +64,7 @@ def write_cycle(
     notes: str | None = None,
 ) -> pathlib.Path:
     """Write `ds` as cycle `cycle_id` (directory name) initialised at `cycle` (UTC) below `data_root`, as uint16 with
-    scale and offset from the data range per variable. `notes`: markdown of the cycle.
+    scale and offset from the data range per variable (scale `RESOLUTION` if there). `notes`: markdown of the cycle.
 
     `ds`: coords lead (hours), z (m above ground, if any variable has it), lat, lon (increasing); variables
     (lead, z, lat, lon) or (lead, lat, lon), NaN = missing."""
@@ -70,7 +74,7 @@ def write_cycle(
     for name, da in ds.data_vars.items():
         dims = ["lead", "z", "lat", "lon"] if "z" in da.dims else ["lead", "lat", "lon"]
         vals = da.transpose(*dims).values.astype(np.float64)
-        stored, encoding = quantize(vals)
+        stored, encoding = quantize(vals, RESOLUTION.get(name))
         var = {
             "long_name": da.attrs.get("long_name", name),
             "units": da.attrs.get("units", ""),
@@ -216,7 +220,7 @@ def write_climatology(
             day_da, day_stats = with_lmean(diurnal, name)
             day = day_da.transpose("month", "hour", "stat", *(["z"] if has_z else []), "lat", "lon").values
         # One encoding for the monthly statistics and the diurnal cycle
-        stored, encoding = quantize(np.concatenate([vals.ravel(), day.ravel().astype(np.float64)]))
+        stored, encoding = quantize(np.concatenate([vals.ravel(), day.ravel().astype(np.float64)]), RESOLUTION.get(name))
         stored_day = stored[vals.size :].reshape(day.shape)
         stored = stored[: vals.size].reshape(vals.shape)
 
