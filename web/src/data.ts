@@ -23,11 +23,16 @@ export interface VarMeta extends Encoding {
   display_ranges?: Record<string, [number, number]>; // per statistic
   display_ranges_z?: Record<string, [number, number][]>;
   diurnal?: { dims: string[]; stats: string[]; file: string }; // [month][hour][stat][lat][lon]
+  // of a variable with z: one file per cell, [month][hour][stat][z]; `cells` with "{cell}" for the cell index
+  diurnal_profiles?: { dims: string[]; stats: string[]; cells: string };
   violin?: Violin; // densities per month [lat][lon][hour][x]
   violin_linear?: Violin; // the same of the linear values (10^value) of a log10 variable
+  violin_month?: MonthViolin; // densities of the months (all hours) [month][lat][lon][x]
+  violin_month_linear?: MonthViolin; // the same of the linear values
 }
 
 type Violin = Encoding & { dims: string[]; x: number[]; files: string[] };
+type MonthViolin = Encoding & { dims: string[]; x: number[]; file: string };
 
 interface GridMeta {
   lat: number[];
@@ -282,6 +287,10 @@ export class Climatology extends Dataset {
   private diurnalArr = new Map<string, Float32Array>();
   private violinArr = new Map<string, Promise<Float32Array>>(); // "<name>/<kind>/<step>"
   private violinDone = new Map<string, Float32Array>();
+  private diurnalCellArr = new Map<string, Promise<Float32Array>>(); // "<name>/<cell>"
+  private diurnalCellDone = new Map<string, Float32Array>();
+  private monthViolinArr = new Map<string, Promise<Float32Array>>(); // "<name>/<kind>"
+  private monthViolinDone = new Map<string, Float32Array>();
 
   private constructor(meta: ClimMeta, base: string) {
     const mid = (m: number) => new Date((Date.UTC(2001, m - 1, 1) + Date.UTC(2001, m, 1)) / 2);
@@ -323,6 +332,34 @@ export class Climatology extends Dataset {
     return Object.fromEntries(stats.map((s, k) => [s, Float32Array.from({ length: nh }, (_, h) => at(h, k))]));
   }
 
+  /** Whether a variable per height has a diurnal cycle (of profiles, one file per cell). */
+  hasDiurnalProfiles(name: string): boolean {
+    return !!this.variables[name]?.diurnal_profiles;
+  }
+
+  /** The diurnal cycle of the profiles of `name` at a cell (loaded on first use, one file per cell). */
+  loadDiurnalProfiles(name: string, cell: number): Promise<void> {
+    const key = `${name}/${cell}`;
+    const v = this.variables[name];
+    if (!v.diurnal_profiles) return Promise.resolve();
+    if (!this.diurnalCellArr.has(key)) {
+      const p = this.fetchBin(v.diurnal_profiles.cells.replace("{cell}", String(cell))).then((b) => decode(b, v));
+      this.diurnalCellArr.set(key, p.then((a) => (this.diurnalCellDone.set(key, a), a)));
+      p.catch(() => this.diurnalCellArr.delete(key)); // retried next time
+    }
+    return this.diurnalCellArr.get(key)!.then(() => undefined);
+  }
+
+  /** Profile of `name` at a month, the hour `meta.hours[hour]` and a cell; undefined until `loadDiurnalProfiles`. */
+  diurnalProfile(name: string, step: number, hour: number, cell: number, stat?: string): Float32Array | undefined {
+    const arr = this.diurnalCellDone.get(`${name}/${cell}`);
+    const stats = this.variables[name].diurnal_profiles?.stats ?? [];
+    const k = stat ? stats.indexOf(stat) : 0;
+    if (!arr || k < 0) return undefined;
+    const at = ((step * this.meta.hours.length + hour) * stats.length + k) * this.nz;
+    return arr.subarray(at, at + this.nz);
+  }
+
   /** Variables with violin densities of the diurnal cycle. */
   get violinVars(): string[] {
     return Object.keys(this.variables).filter((n) => this.variables[n].violin);
@@ -362,6 +399,45 @@ export class Climatology extends Dataset {
     const nh = this.meta.hours.length;
     const density = this.meta.hours.map((_, h) => arr.slice((cell * nh + h) * x.length, (cell * nh + h + 1) * x.length));
     return { x, density, linear: kind === "violin_linear" };
+  }
+
+  /** Variables with violin densities per month (the annual cycle). */
+  get monthViolinVars(): string[] {
+    return Object.keys(this.variables).filter((n) => this.variables[n].violin_month);
+  }
+
+  private monthViolinKind(name: string, linear: boolean): "violin_month" | "violin_month_linear" {
+    return linear && this.variables[name].violin_month_linear ? "violin_month_linear" : "violin_month";
+  }
+
+  /** The violin densities per month, all variables (loaded on first use, one file per variable); `linear`: those of
+   * the linear values where a variable has them. */
+  loadMonthViolins(linear: (name: string) => boolean): Promise<void> {
+    return Promise.all(
+      this.monthViolinVars.map((name) => {
+        const kind = this.monthViolinKind(name, linear(name));
+        const key = `${name}/${kind}`;
+        if (!this.monthViolinArr.has(key)) {
+          const v = this.variables[name][kind]!;
+          const p = this.fetchBin(v.file).then((b) => decode(b, v));
+          this.monthViolinArr.set(key, p.then((a) => (this.monthViolinDone.set(key, a), a)));
+          p.catch(() => this.monthViolinArr.delete(key)); // retried next time
+        }
+        return this.monthViolinArr.get(key)!;
+      }),
+    ).then(() => undefined);
+  }
+
+  /** Densities (scaled to a maximum of 1) at the bin centres `x`, per month, at a cell; undefined until
+   * `loadMonthViolins` is done. `linear` as in `violin`. */
+  monthViolin(name: string, cell: number, linear = false): { x: number[]; density: Float32Array[]; linear: boolean } | undefined { // fmt: skip
+    const kind = this.monthViolinKind(name, linear);
+    const arr = this.monthViolinDone.get(`${name}/${kind}`);
+    const x = this.variables[name][kind]?.x;
+    if (!arr || !x) return undefined;
+    const n = this.nlat * this.nlon;
+    const density = this.times.map((_, m) => arr.slice((m * n + cell) * x.length, (m * n + cell + 1) * x.length));
+    return { x, density, linear: kind === "violin_month_linear" };
   }
 
   /** Statistics a variable has. */

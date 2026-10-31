@@ -107,7 +107,8 @@ Statistics per calendar month, written by `pipeline/src/otprof_live/webui.py` (`
       "dims": ["month", "stat", "z", "lat", "lon"], "stats": ["median", "mean", "p5", "p25", "p75", "p95", "lmean"],
       "dtype": "uint16", "scale": 0.0001, "offset": -22.2, "fill": 65535, "valid_range": [-22.2, -13.0],
       "display_ranges": {"median": [-17.5, -14.0]}, "display_ranges_z": {"median": [[-15.8, -14.1]]},
-      "files": ["lcn2_m01.bin", "lcn2_m02.bin"]
+      "files": ["lcn2_m01.bin", "lcn2_m02.bin"],
+      "diurnal_profiles": {"dims": ["month", "hour", "stat", "z"], "stats": ["median", "mean", "p5", "p25", "p75", "p95", "lmean"], "cells": "lcn2_diurnal/{cell}.bin"}
     },
     "r0": {
       "dims": ["month", "stat", "lat", "lon"], "stats": ["median", "mean", "p5", "p25", "p75", "p95"],
@@ -134,8 +135,11 @@ Per variable, in addition to the cycle keys:
 | `file` | alternatively one file `[month][stat][lat][lon]` (variables without `z`). |
 | `display_ranges`, `display_ranges_z` | per statistic, the colour scale range (and per height), over all months. |
 | `diurnal` | optional diurnal cycle, `[month][hour][stat][lat][lon]` with its own `stats`, same encoding as the variable. |
+| `diurnal_profiles` | optional diurnal cycle of a variable with `z` (lcn2), with its own `stats`, same encoding as the variable: one file per cell, `cells` with `{cell}` for the cell index (lat index × number of lons + lon index), each `[month][hour][stat][z]` (~130 KB; the app loads the cell selected). |
 | `violin` | optional distributions of the diurnal cycle for violin plots: densities scaled to a maximum of 1 per month, hour and cell at the bin centres `x` of the variable, with their own encoding (`dtype` `uint8`, `scale`, `offset`, `fill`); `files`: one per month, each `[lat][lon][hour][x]` (each violin contiguous: compresses well). The app loads the month shown when the violins are on (~0.6 MB per variable and month, ~0.13 MB with gzip). |
 | `violin_linear` | optional, of a log10 variable: the same of its linear values (`x` linear, 10^value), estimated in linear space; the app uses them when it shows the variable linearly. |
+| `violin_month` | optional distributions per month (all hours) for violin plots of the annual cycle: as `violin`, but one `file` `[month][lat][lon][x]`. |
+| `violin_month_linear` | optional, of a log10 variable: the same of its linear values. |
 
 ## Serving
 

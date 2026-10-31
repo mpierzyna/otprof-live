@@ -87,6 +87,7 @@
 
       <section class="card map-panel" aria-label="Map">
         <div id="map"></div>
+        <div class="map-spinner overlay" id="map-spinner" role="status" aria-label="Loading" hidden><span class="spinner"></span></div>
         <div class="height-overlay overlay" id="height-group" title="Height above ground (↑ ↓)">
           <label for="height">Height</label>
           <output id="height-label"></output>
@@ -104,7 +105,10 @@
       <section class="card profile-panel" aria-label="Vertical profile">
         <div class="card-header">
           <div class="card-title-row">
-            <h2 id="profile-title">Profile</h2>
+            <div class="card-title">
+              <h2 id="profile-title">Profile</h2>
+              <span class="spinner" id="profile-spinner" role="status" aria-label="Loading" hidden></span>
+            </div>
             <label class="filter-chip" title="Logarithmic height axis of the profile and the time-height plot">
               <input id="log-height" type="checkbox" /> Log height
             </label>
@@ -118,24 +122,39 @@
 
       <section class="card th-panel" aria-label="Time-height plot">
         <div class="card-header">
-          <h2 id="th-title">Forecast at the selected point</h2>
+          <div class="card-title-row">
+            <div class="card-title">
+              <h2 id="th-title">Forecast at the selected point</h2>
+              <span class="spinner" id="th-spinner" role="status" aria-label="Loading" hidden></span>
+            </div>
+            <div id="th-kind" class="segmented small kind-switch" role="group" aria-label="Plot type" hidden>
+              <button type="button" data-kind="box">Box</button>
+              <button type="button" data-kind="violin">Violin</button>
+            </div>
+          </div>
           <div id="th-hover" class="subheader">Hover for values, click to select a time and height</div>
         </div>
         <div id="timeheight"></div>
         <div id="th-colorbar" class="colorbar"></div>
+        <div id="th-legend" class="legend"></div>
       </section>
 
       <section id="diurnal-panel" class="card diurnal-panel" aria-label="Diurnal cycle" hidden>
         <div class="card-header">
           <div class="card-title-row">
-            <h2 id="diurnal-title">Diurnal cycle</h2>
-            <div id="diurnal-kind" class="segmented small" role="group" aria-label="Plot type">
+            <div class="card-title">
+              <h2 id="diurnal-title">Diurnal cycle</h2>
+              <span class="spinner" id="diurnal-spinner" role="status" aria-label="Loading" hidden></span>
+            </div>
+            <div id="diurnal-kind" class="segmented small kind-switch" role="group" aria-label="Plot type">
               <button type="button" data-kind="box">Box</button>
               <button type="button" data-kind="violin">Violin</button>
             </div>
           </div>
+          <div id="diurnal-hover" class="subheader">Hover for values, click to select a height</div>
         </div>
-        <div id="diurnal" class="diurnal"></div>
+        <div id="diurnal"></div>
+        <div id="diurnal-colorbar" class="colorbar"></div>
         <div id="diurnal-legend" class="legend"></div>
       </section>
 

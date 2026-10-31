@@ -7,8 +7,9 @@ Run again whenever the climatology is recomputed. Step 4 of the live pipeline (.
 
 Per calendar month and grid point: the statistics `CLIM_STATS` of lcn2 (per height), r0 and lsi2 (`grid_month.nc`),
 the log10 of the mean of the linear values (cn2, si2) as the extra statistic `lmean` of lcn2 and lsi2, and the diurnal
-cycle (3-hourly, UTC) of r0 and lsi2 with the same statistics (`grid_month_hour.nc`) and as densities for violin
-plots (`grid_month_hour_violin.nc`, if there; lsi2 also of the linear si2, `violin_linear`).
+cycle (3-hourly, UTC) of lcn2 (one file per grid point), r0 and lsi2 with the same statistics (`grid_month_hour.nc`) and as densities for violin
+plots (`grid_month_hour_violin.nc`, if there; lsi2 also of the linear si2, `violin_linear`), and the densities per
+month for violin plots of the annual cycle (`grid_month_violin.nc`, if there: `violin_month`, `violin_month_linear`).
 """
 
 import pathlib
@@ -30,9 +31,13 @@ if __name__ == "__main__":
     violin = to_grid(xr.open_dataset(violin_file)).load() if violin_file.exists() else None
     if violin is None:
         logger.warning(f"{violin_file} missing (step 4 before the violin plots): the app shows box plots only")
+    month_file = src / "grid_month_violin.nc"
+    violin_month = to_grid(xr.open_dataset(month_file)).load() if month_file.exists() else None
+    if violin_month is None:
+        logger.warning(f"{month_file} missing (step 4 before the violins per month): the annual cycle as box plots only")
     out = WEBUI_DATA / CLIM_DIR
-    meta = write_climatology(grid, diurnal, out, violin)
-    size = sum(f.stat().st_size for f in out.iterdir()) / 1e6
+    meta = write_climatology(grid, diurnal, out, violin, violin_month)
+    size = sum(f.stat().st_size for f in out.rglob("*") if f.is_file()) / 1e6
     logger.info(f"Wrote {out} ({size:.1f} MB, {meta['info']['Sample']})")
 
     write_index(WEBUI_DATA)  # the cycles stay as they are

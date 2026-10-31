@@ -35,8 +35,9 @@ CLIM_NOTES = """\
 ## Climatology
 
 Cn² profiles predicted by SQF-H from ERA5 (0.25°, 3-hourly), summarised per calendar month and grid point.
-The statistics of each month pool all hours of the day; the diurnal cycle splits them by hour (UTC), as box plots or
-as violins (the distribution as a kernel density, with the 25th–75th percentile box inside).
+The statistics of each month pool all hours of the day; the diurnal cycle splits them by hour (UTC). The annual and
+the diurnal cycle of r0 and σᵢ² are shown as box plots or as violins (the distribution as a kernel density, with the
+25th–75th percentile box inside).
 The map shows the selected statistic; the profile shows the 25th–75th (dark) and 5th–95th (light) percentile bands.
 Months with few years in the sample (listed above the profile) are less representative.
 """
@@ -143,53 +144,66 @@ def display_ranges(vals: np.ndarray, stats: list[str], per_z: bool = False) -> d
 
 
 def write_violins(violin: xr.Dataset, name: str, out: pathlib.Path, prefix: str) -> dict:
-    """The densities of `name` in `violin` as uint8, one file per month `<prefix>_violin_mMM.bin`; returns their meta."""
-    dens = violin[name].transpose("month", "lat", "lon", "hour", f"{name}_x").values
+    """The densities of `name` in `violin` as uint8; returns their meta. Of the diurnal cycle (with dim `hour`): one file
+    per month `<prefix>_violin_mMM.bin` ([lat][lon][hour][x]); else of the months: one file `<prefix>_violin_month.bin`
+    ([month][lat][lon][x])."""
+    dims = ["month", "lat", "lon", *(["hour"] if "hour" in violin[name].dims else [])]
+    dens = violin[name].transpose(*dims, f"{name}_x").values
     dens = np.where(dens < VIOLIN_MIN, 0, dens)
     stored = np.where(np.isnan(dens), VIOLIN_FILL, np.round(dens * (VIOLIN_LEVELS - 1))).astype("u1")
     meta = {
-        "dims": ["month", "lat", "lon", "hour", "x"],
+        "dims": [*dims, "x"],
         "x": [float(v) for v in violin[f"{name}_x"].values],
         "dtype": "uint8",
         "scale": 1 / (VIOLIN_LEVELS - 1),
         "offset": 0.0,
         "fill": VIOLIN_FILL,
-        "files": [f"{prefix}_violin_m{m:02d}.bin" for m in violin["month"].values],
     }
+    if "hour" not in dims:
+        meta["file"] = f"{prefix}_violin_month.bin"
+        (out / meta["file"]).write_bytes(stored.tobytes())
+        return meta
+    meta["files"] = [f"{prefix}_violin_m{m:02d}.bin" for m in violin["month"].values]
     for file, block in zip(meta["files"], stored):
         (out / file).write_bytes(block.tobytes())
     return meta
 
 
 def write_climatology(
-    grid: xr.Dataset, diurnal: xr.Dataset, out: pathlib.Path, violin: xr.Dataset | None = None
+    grid: xr.Dataset,
+    diurnal: xr.Dataset,
+    out: pathlib.Path,
+    violin: xr.Dataset | None = None,
+    violin_month: xr.Dataset | None = None,
 ) -> dict:
     """`grid` (month, stat, lat, lon[, z]), `diurnal` (month, hour, stat, lat, lon) and optionally `violin` (densities
-    scaled to a maximum of 1, (month, hour, <var>_x, lat, lon)) → `out`; returns meta.json. The linear variables of
-    `LINEAR` (e.g. `cn2`) give the `lmean` of their log10 variables and their `violin_linear`. The densities are stored as
-    uint8 in `VIOLIN_LEVELS` levels (`VIOLIN_FILL` missing, tails below `VIOLIN_MIN` 0), one file per month, each violin
-    contiguous ([lat][lon][hour][x]): ~0.6 MB per variable and month, ~0.13 MB with gzip. The app loads the month shown."""
+    scaled to a maximum of 1, (month, hour, <var>_x, lat, lon)) and `violin_month` (the same per month, (month, <var>_x,
+    lat, lon)) → `out`; returns meta.json. The diurnal cycle of a variable per height (lcn2) is stored per cell
+    (lat index * nlon + lon index), each ([month][hour][stat][z]). The linear variables of `LINEAR` (e.g. `cn2`) give the `lmean` of their log10
+    variables and their `violin_linear` (`violin_month_linear`). The densities are stored as uint8 in `VIOLIN_LEVELS`
+    levels (`VIOLIN_FILL` missing, tails below `VIOLIN_MIN` 0), each violin contiguous: of the diurnal cycle one file per
+    month ([lat][lon][hour][x]: ~0.6 MB per variable and month, ~0.13 MB with gzip; the app loads the month shown), of
+    the months one file ([month][lat][lon][x])."""
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)
     variables = {}
 
     def with_lmean(ds: xr.Dataset, name: str) -> tuple[xr.DataArray, list[str]]:
-        """The `CLIM_STATS` of `name`, and `lmean` if its linear variable is in `ds`."""
+        """The `CLIM_STATS` of `name`, and `lmean` if its linear variable or `<name>_linear_mean` is in `ds`."""
         da = ds[name].sel(stat=CLIM_STATS)
-        lin = LINEAR.get(name)
-        if lin not in ds:
+        if LINEAR.get(name) in ds:
+            lmean = np.log10(ds[LINEAR[name]].sel(stat="mean"))
+        elif f"{name}_linear_mean" in ds:  # lcn2 of the diurnal cycle, or before the linear Cn2 statistics
+            lmean = ds[f"{name}_linear_mean"]
+        else:
             return da, CLIM_STATS
-        lmean = np.log10(ds[lin].sel(stat="mean")).expand_dims(stat=["lmean"], axis=list(ds[name].dims).index("stat"))
-        return xr.concat([da, lmean.transpose(*da.dims)], dim="stat"), [*CLIM_STATS, "lmean"]
+        lmean = lmean.expand_dims(stat=["lmean"]).transpose(*da.dims)
+        return xr.concat([da, lmean], dim="stat"), [*CLIM_STATS, "lmean"]
 
     for name in CLIM_VARIABLES:
         has_z = "z" in grid[name].dims
-        if name == "lcn2" and "cn2" not in grid:  # climatology before the linear Cn2 statistics
-            lmean = grid["lcn2_linear_mean"].expand_dims(stat=["lmean"], axis=1)
-            da, stats = xr.concat([grid[name].sel(stat=CLIM_STATS), lmean], dim="stat"), [*CLIM_STATS, "lmean"]
-        else:
-            da, stats = with_lmean(grid, name)
+        da, stats = with_lmean(grid, name)
         if LINEAR.get(name) in grid:  # the percentiles of the linear values are those of the log10
             lin = np.log10(grid[LINEAR[name]].sel(stat=["p5", "median", "p95"]))
             diff = float(np.nanmax(np.abs(lin - grid[name].sel(stat=["p5", "median", "p95"]))))
@@ -200,7 +214,7 @@ def write_climatology(
         day_stats = CLIM_STATS
         if name in diurnal:
             day_da, day_stats = with_lmean(diurnal, name)
-            day = day_da.transpose("month", "hour", "stat", "lat", "lon").values
+            day = day_da.transpose("month", "hour", "stat", *(["z"] if has_z else []), "lat", "lon").values
         # One encoding for the monthly statistics and the diurnal cycle
         stored, encoding = quantize(np.concatenate([vals.ravel(), day.ravel().astype(np.float64)]))
         stored_day = stored[vals.size :].reshape(day.shape)
@@ -222,13 +236,24 @@ def write_climatology(
         else:
             var["file"] = f"{name}.bin"
             (out / var["file"]).write_bytes(stored.tobytes())
-        if day.size:
+        if day.size and has_z:  # one file per cell ([month][hour][stat][z]): the app loads the cell selected
+            day_meta = {"dims": ["month", "hour", "stat", "z"], "stats": day_stats, "cells": f"{name}_diurnal/{{cell}}.bin"}
+            var["diurnal_profiles"] = day_meta
+            (out / f"{name}_diurnal").mkdir()
+            per_cell = np.moveaxis(stored_day, (-2, -1), (0, 1)).reshape(-1, *stored_day.shape[:-2])
+            for cell, block in enumerate(per_cell):
+                (out / day_meta["cells"].format(cell=cell)).write_bytes(np.ascontiguousarray(block).tobytes())
+        elif day.size:
             var["diurnal"] = {"dims": ["month", "hour", "stat", "lat", "lon"], "stats": day_stats, "file": f"{name}_diurnal.bin"}
             (out / var["diurnal"]["file"]).write_bytes(stored_day.tobytes())
         if violin is not None and name in violin:
             var["violin"] = write_violins(violin, name, out, name)
         if violin is not None and LINEAR.get(name) in violin:
             var["violin_linear"] = write_violins(violin, LINEAR[name], out, f"{name}_linear")
+        if violin_month is not None and name in violin_month:
+            var["violin_month"] = write_violins(violin_month, name, out, name)
+        if violin_month is not None and LINEAR.get(name) in violin_month:
+            var["violin_month_linear"] = write_violins(violin_month, LINEAR[name], out, f"{name}_linear")
         variables[name] = var
 
     months = grid.attrs["months"].split()  # "YYYY-MM" of the sample

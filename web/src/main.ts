@@ -8,7 +8,7 @@ import { numberFormat } from "./format";
 import { Climatology, Cycle, type Dataset, loadIndex, nearestIndex } from "./data";
 import { MapView } from "./map";
 import { renderNotes } from "./notes";
-import { type BoxStats, DiurnalView, formatHeight, ProfileView, TimeHeightView, type Violins } from "./plots";
+import { type BoxStats, formatHeight, ProfileView, type Steps, TimeHeightView, type Violins } from "./plots";
 import { type HashState, type Mode, parseHash, resolve, type State, Store, toHash } from "./state";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -42,6 +42,21 @@ const STAT_BUTTONS: [string, string][][] = [
     ["lmean", "Lin. mean"],
   ],
 ];
+type Panel = "map" | "profile" | "th" | "diurnal";
+const PANELS: Panel[] = ["map", "profile", "th", "diurnal"];
+const pendingLoads = new Map<Panel, number>();
+/** The spinners of `panels` (`<panel>-spinner`) shown while `p` is pending; returns `p`. */
+function loading<T>(panels: Panel[], p: Promise<T>): Promise<T> {
+  const count = (id: Panel, d: number) => {
+    const n = (pendingLoads.get(id) ?? 0) + d;
+    pendingLoads.set(id, n);
+    $(`${id}-spinner`).hidden = n === 0;
+  };
+  panels.forEach((id) => count(id, 1));
+  const done = () => panels.forEach((id) => count(id, -1));
+  p.then(done, done);
+  return p;
+}
 /** Legend items into `el`: [swatch class (legend i.<class> in style.css), label]. */
 function drawLegend(el: HTMLElement, items: [string, string][]) {
   el.replaceChildren(
@@ -62,6 +77,7 @@ const fill = (input: HTMLInputElement) =>
   input.style.setProperty("--pct", `${(100 * (+input.value - +input.min)) / Math.max(1, +input.max - +input.min)}%`);
 const SPEEDS: [number, string][] = [[2, "0.5×"], [1, "1×"], [0.5, "2×"], [0.25, "4×"]]; // interval factor, label
 const TH_HINT = "Hover for values, click to select a time and height";
+const DAY_HINT = "Hover for values, click to select a height";
 const DISCLAIMER_KEY = "otprof-live.disclaimer"; // localStorage: "closed" once the banner was collapsed
 const INDEX_POLL_MS = 10 * 60 * 1000; // new forecast runs: checked every 10 min
 /** A cycle directory name (YYYYMMDDHH) as e.g. "Fri 30 Oct, 00 UTC". */
@@ -159,7 +175,7 @@ async function main() {
   let climLoad: Promise<Climatology> | undefined;
   const openClim = () => (climLoad ??= Climatology.open(climUrl!).then((c) => (clim = c)));
   const firstCycle = hash.cycle && index.cycles.includes(hash.cycle) ? hash.cycle : latestCycle();
-  let data: Dataset = hash.mode === "clim" && climUrl ? await openClim() : await openCycle(firstCycle);
+  let data: Dataset = await loading<Dataset>(PANELS, hash.mode === "clim" && climUrl ? openClim() : openCycle(firstCycle));
   const climOf = (d: Dataset) => (d instanceof Climatology ? d : undefined);
   /** Lead hours shown when the forecast was left for the climatology */
   let liveLeadHours: number | undefined;
@@ -230,7 +246,7 @@ async function main() {
     const step = nearestIndex(c.meta.months, data.times[s.lead].getUTCMonth() + 1);
     if (cell < 0) return undefined;
     if (!c.hasStep(step)) {
-      void c.loadStep(step).then(() => data instanceof Cycle && renderProfile());
+      void loading(["profile"], c.loadStep(step)).then(() => data instanceof Cycle && renderProfile());
       return undefined;
     }
     const band = (lo: string, hi: string) => ({ z: c.z, lo: c.profile(name, step, cell, lo)!, hi: c.profile(name, step, cell, hi)! }); // fmt: skip
@@ -306,7 +322,12 @@ async function main() {
     (lead, zi) => store.set(zi === undefined ? { lead, playing: false } : { lead, zi, playing: false }),
     (text) => ($("th-hover").textContent = text || TH_HINT),
   );
-  const diurnalView = new DiurnalView($("diurnal"));
+  const dayView = new TimeHeightView(
+    $("diurnal"),
+    (_, zi) => zi !== undefined && store.set({ zi }),
+    (text) => ($("diurnal-hover").textContent = text || DAY_HINT),
+  );
+  let daySteps: Steps | undefined; // the hours of the month shown in dayView
 
   // Controls
   const timeInput = $<HTMLInputElement>("time");
@@ -363,7 +384,7 @@ async function main() {
     }
   }, INDEX_POLL_MS);
   $("mode-tabs").hidden = !climUrl;
-  for (const b of $("diurnal-kind").querySelectorAll<HTMLButtonElement>("button"))
+  for (const b of document.querySelectorAll<HTMLButtonElement>(".kind-switch button"))
     b.addEventListener("click", () => store.set({ diurnalKind: b.dataset.kind as State["diurnalKind"] }));
   for (const b of $("mode-tabs").querySelectorAll<HTMLButtonElement>("button"))
     b.addEventListener("click", () => void switchMode(b.dataset.mode as Mode));
@@ -514,15 +535,29 @@ async function main() {
     });
   }
 
-  function renderTimeHeight() {
+  /** `boxOnly`: the annual cycle as box plots even if violins are selected (their densities failed to load). */
+  function renderTimeHeight(boxOnly = false) {
     const s = st();
     const pv = profileVar(s);
     if (!pv || s.cell < 0) return;
     const c = climOf(data);
     const stat = statFor(pv);
-    $("th-title").textContent = c
-      ? `Annual cycle of ${label(pv)} (${statName(stat!, pv).toLowerCase()}) at ${cellLabel(s.cell)}`
-      : `${label(pv)} at ${cellLabel(s.cell)}`;
+    // Climatology: the column variables per month as box plots or violins
+    const kind = c?.monthViolinVars.length && !boxOnly ? s.diurnalKind : "box";
+    $("th-kind").hidden = !c?.monthViolinVars.length;
+    for (const b of $("th-kind").querySelectorAll<HTMLButtonElement>("button"))
+      b.setAttribute("aria-pressed", String(b.dataset.kind === kind));
+    if (c && kind === "violin" && c.monthViolinVars.some((n) => !c.monthViolin(n, s.cell, linear(n)))) {
+      // Drawn once the densities are loaded, the previous plot stays until then
+      const current = () => climOf(data) === c && st().diurnalKind === "violin";
+      void loading(["th"], c.loadMonthViolins(linear)).then(
+        () => current() && renderTimeHeight(),
+        (e) => (console.warn("Loading the violins of the annual cycle failed:", e), current() && renderTimeHeight(true)),
+      );
+      return;
+    }
+    drawLegend($("th-legend"), c ? boxLegend(c, kind, c.columnVars) : []);
+    $("th-title").textContent = `${c ? "Annual cycle" : "Forecast"} at ${cellLabel(s.cell)}`;
     thView.draw({
       cycle: data,
       name: pv,
@@ -530,6 +565,7 @@ async function main() {
       lead: s.lead,
       zi: s.zi,
       heightScale: s.heightScale,
+      label: c ? `${label(pv)} (${statName(stat!, pv).toLowerCase()})` : label(pv),
       cmap: cmap(pv),
       range: shownRange(pv, globalRange(pv)),
       fmt: fmt(pv),
@@ -539,6 +575,8 @@ async function main() {
         label: fullLabel(name),
         fmt: fmt(name),
         tf: linear(name) ? (v: number) => 10 ** v : undefined,
+        boxes: c && shownBoxes(name, Object.fromEntries(c.stats(name).map((k) => [k, c.series(name, s.cell, k)]))),
+        violins: c && kind === "violin" ? shownViolins(name, c.monthViolin(name, s.cell, linear(name))) : undefined,
       })),
       stepLabel,
       from: firstStep,
@@ -559,38 +597,78 @@ async function main() {
     $("diurnal-kind").hidden = !c.violinVars.length;
     for (const b of $("diurnal-kind").querySelectorAll<HTMLButtonElement>("button"))
       b.setAttribute("aria-pressed", String(b.dataset.kind === kind));
-    // Shown linearly, the mean is that of the linear values (lmean) if there; else the geometric mean
-    const geometric = c.diurnalVars.filter((n) => linear(n) && !c.variables[n].diurnal?.stats.includes("lmean")).map(label); // fmt: skip
-    const mean = geometric.length ? `Mean (geometric of ${geometric.join(", ")})` : "Mean";
-    drawLegend(
-      $("diurnal-legend"),
-      kind === "violin"
-        ? [["violin", "Distribution"], ["box", "25th–75th percentile"], ["", "Median"], ["dot", mean]]
-        : [["box", "25th–75th percentile"], ["whisker", "5th–95th percentile"], ["", "Median"], ["dot", mean]],
+    drawLegend($("diurnal-legend"), boxLegend(c, kind, c.diurnalVars, (n) => c.variables[n].diurnal?.stats));
+    // Drawn once the profiles of the cell (and the violins of the month) are loaded (at once if they are), the previous
+    // plot stays until then
+    const { lead, cell } = s;
+    const pv = profileVar(s);
+    const current = () => climOf(data) === c && st().lead === lead && st().cell === cell;
+    const loads = Promise.all([
+      pv && c.hasDiurnalProfiles(pv) ? c.loadDiurnalProfiles(pv, cell) : undefined,
+      kind === "violin" ? c.loadViolins(lead, linear) : undefined,
+    ]);
+    void loading(["diurnal"], loads).then(
+      () => current() && drawDiurnal(c),
+      (e) => (console.warn("Loading the diurnal cycle failed:", e), current() && drawDiurnal(c)),
     );
-    if (kind === "box") return drawDiurnal(c, kind);
-    // Violins: drawn once the month is loaded (at once if it is), the previous plot stays until then
-    const lead = s.lead;
-    const current = () => climOf(data) === c && st().lead === lead && st().diurnalKind === "violin";
-    void c.loadViolins(lead, linear).then(() => current() && drawDiurnal(c, "violin"));
   }
-  function drawDiurnal(c: Climatology, kind: "box" | "violin") {
+  /** The diurnal cycle of the month and cell selected: the profile variable over the hours, the column variables as
+   * box plots or violins below. */
+  function drawDiurnal(c: Climatology) {
     const s = st();
-    diurnalView.draw(
-      c.meta.hours,
-      kind,
-      c.diurnalVars.map((name) => {
-        const day = c.diurnal(name, s.lead, s.cell);
-        const boxes = day && (Object.fromEntries(Object.entries(day).map(([k, a]) => [k, shownArr(name, a)])) as BoxStats); // fmt: skip
-        if (boxes?.lmean && linear(name)) boxes.mean = boxes.lmean; // the mean of the linear values
-        return {
-          label: fullLabel(name),
-          fmt: fmt(name),
-          boxes,
-          violins: shownViolins(name, c.violin(name, s.lead, s.cell, linear(name))),
-        };
-      }),
-    );
+    const pv = profileVar(s);
+    if (!pv) return;
+    const stat = statFor(pv)!;
+    const kind = c.violinVars.length ? s.diurnalKind : "box";
+    const hours = c.meta.hours;
+    daySteps = {
+      times: hours.map((h) => new Date(Date.UTC(2001, 0, 1, h))),
+      z: c.z,
+      nz: c.nz,
+      profile: (name, h, cell, stat) => c.diurnalProfile(name, s.lead, h, cell, stat),
+      series: () => new Float32Array(hours.length).fill(NaN),
+    };
+    dayView.draw({
+      cycle: daySteps,
+      name: pv,
+      cell: s.cell,
+      lead: -1,
+      zi: s.zi,
+      heightScale: s.heightScale,
+      label: `${label(pv)} (${statName(stat, pv).toLowerCase()})`,
+      cmap: cmap(pv),
+      range: shownRange(pv, globalRange(pv)),
+      fmt: fmt(pv),
+      tf: linear(pv) ? (v) => 10 ** v : undefined,
+      columns: c.diurnalVars.map((name) => ({
+        name,
+        label: fullLabel(name),
+        fmt: fmt(name),
+        boxes: shownBoxes(name, c.diurnal(name, s.lead, s.cell)),
+        violins: kind === "violin" ? shownViolins(name, c.violin(name, s.lead, s.cell, linear(name))) : undefined,
+      })),
+      stepLabel: (h) => `${fmtMonth(c.times[s.lead])}, ${format("02d")(hours[h])}:00 UTC`,
+      stat,
+      showZ: data.profileVars.includes(s.variable),
+      hours: true,
+    });
+    drawColorbar($("diurnal-colorbar"), cmap(pv), shownRange(pv, globalRange(pv)), fullLabel(pv));
+  }
+  /** Box statistics per step as shown; shown linearly, the mean is that of the linear values (lmean) if there. */
+  function shownBoxes(name: string, stats: Record<string, Float32Array> | undefined): BoxStats | undefined {
+    if (!stats) return undefined;
+    const boxes = Object.fromEntries(Object.entries(stats).map(([k, a]) => [k, shownArr(name, a)])) as BoxStats;
+    if (boxes.lmean && linear(name)) boxes.mean = boxes.lmean;
+    return boxes;
+  }
+  /** Legend of box plots or violins of `names`; `stats`: their statistics (default: the monthly ones). */
+  function boxLegend(c: Climatology, kind: "box" | "violin", names: string[], stats: (n: string) => string[] | undefined = (n) => c.stats(n)): [string, string][] { // fmt: skip
+    // Shown linearly without lmean, the mean is the geometric mean
+    const geometric = names.filter((n) => linear(n) && !stats(n)?.includes("lmean")).map(label);
+    const mean = geometric.length ? `Mean (geometric of ${geometric.join(", ")})` : "Mean";
+    return kind === "violin"
+      ? [["violin", "Distribution"], ["box", "25th–75th percentile"], ["", "Median"], ["dot", mean]]
+      : [["box", "25th–75th percentile"], ["whisker", "5th–95th percentile"], ["", "Median"], ["dot", mean]];
   }
   /** Violins of a log₁₀ variable shown linearly: those of the linear values if the data have them, else the log₁₀
    * densities per linear unit (divided by 10^value), scaled to a maximum of 1 again. */
@@ -678,13 +756,14 @@ async function main() {
 
   store.subscribe((s, ch) => {
     const any = (...keys: (keyof State)[]) => keys.some((k) => ch.has(k));
-    if (any("lead")) void data.loadStep(s.lead);
+    if (any("lead")) void loading(["map", "profile"], data.loadStep(s.lead));
     if (any("variable", "lead", "zi", "colourPerHeight", "stat", "logValues")) renderMap();
     if (any("cell")) mapView.setSelection(s.cell);
     if (any("variable", "lead", "zi", "cell", "heightScale", "stat", "logValues")) renderProfile();
-    if (any("variable", "cell", "heightScale", "stat", "logValues")) renderTimeHeight();
+    if (any("variable", "cell", "heightScale", "stat", "logValues", "diurnalKind")) renderTimeHeight();
     else if (any("lead", "zi")) thView.setCursor(data, s.lead, s.zi);
-    if (any("lead", "cell", "diurnalKind", "logValues")) renderDiurnal();
+    if (any("variable", "lead", "cell", "heightScale", "stat", "diurnalKind", "logValues")) renderDiurnal();
+    else if (any("zi") && daySteps) dayView.setCursor(daySteps, -1, s.zi);
     renderControls();
     if (any("playing")) schedulePlay();
     history.replaceState(null, "", toHash(s, data));
@@ -716,14 +795,17 @@ async function main() {
     store.state = { ...st(), mode: climOf(data) ? "clim" : "live", ...(data instanceof Cycle && { cycle: data.id }), ...r, ...(h.logValues !== undefined && { logValues: h.logValues }) }; // fmt: skip
     await data.loadStep(r.lead);
     renderAll();
-    void data.loadAll(r.lead, firstStep);
+    void loading(["th"], data.loadAll(r.lead, firstStep));
   }
   async function switchCycle(id: string, h: HashState, explicit = false) {
-    await switchTo(await openCycle(id), h, explicit);
+    await loading(PANELS, openCycle(id).then((next) => switchTo(next, h, explicit)));
   }
   /** The climatology opens at the month of the forecast time shown; the forecast at the lead time it was left at. */
   async function switchMode(mode: Mode, extra: HashState = {}, explicit = false) {
     if (mode === st().mode || (mode === "clim" && !climUrl)) return;
+    await loading(PANELS, switchModeTo(mode, extra, explicit));
+  }
+  async function switchModeTo(mode: Mode, extra: HashState, explicit: boolean) {
     const h = physical();
     if (mode === "clim") {
       liveLeadHours = h.leadHours;
@@ -795,12 +877,12 @@ async function main() {
 
   setupData();
   await mapView.setCycle(data);
-  await data.loadStep(st().lead);
+  await loading(PANELS, data.loadStep(st().lead));
   renderAll();
   $("th-hover").textContent = TH_HINT;
-  void data.loadAll(st().lead, firstStep);
+  void loading(["th"], data.loadAll(st().lead, firstStep));
   // The climatology behind the forecast profile
-  if (climUrl && !clim) void openClim().then(() => data instanceof Cycle && renderProfile());
+  if (climUrl && !clim) void loading(["profile"], openClim()).then(() => data instanceof Cycle && renderProfile());
 }
 
 main().catch((e: unknown) => {

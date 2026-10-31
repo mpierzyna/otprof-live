@@ -17,12 +17,15 @@ Groupings of the time steps: `all`, `season` (DJF, MAM, JJA, SON), `month` (cale
 - `domain_<grouping>.nc`: pooled over all grid points and time steps, dims ([grouping,] stat[, bottom_top])
 - `grid_month_hour.nc`: diurnal cycle of `r0`, `si2`, `lsi2` per grid point and calendar month, for box plots:
   dims (month, hour, stat, lat, lon), `stat`: `n`, `mean`, `p5`, `p25`, `median`, `p75`, `p95`, `iqr` (box p25 .. p75,
-  whiskers p5 .. p95)
+  whiskers p5 .. p95); the same of `lcn2` per height (dims (month, hour, stat, lat, lon, bottom_top)), with
+  `lcn2_linear_mean` (month, hour, lat, lon, bottom_top)
 - `grid_month_hour_violin.nc`: the same diurnal cycle of `r0`, `lsi2` and `si2` as distributions, for violin plots:
   histograms in the bins of `VIOLIN_VARS` (centres `<var>_x`) over the range of the variable in all data (si2: up to
   its 99.9th percentile, the far tail left out), smoothed with a Gaussian of
   Silverman's bandwidth per month, hour and grid point (a binned kernel density estimate) and cut to its range, scaled to a maximum of 1 per violin (NaN
   without data); dims (month, hour, <var>_x, lat, lon)
+- `grid_month_violin.nc`: the same per calendar month (all hours), for violin plots of the annual cycle: dims (month,
+  <var>_x, lat, lon)
 
 Uses the months predicted so far (`list_months_predicted` of step 3; attributes `months`, `n_months`): during the
 download a sample of the years spread by the Sobol order of step 1, so early climatologies have few years per calendar
@@ -122,6 +125,19 @@ def compute_linear_mean(lcn2: np.ndarray) -> np.ndarray:
     return np.log10(np.mean(10.0 ** lcn2.astype(np.float64), axis=0)).astype(np.float32)
 
 
+def compute_diurnal(lcn2: np.ndarray, times: pd.DatetimeIndex, hours: list[int]) -> tuple[np.ndarray, np.ndarray]:
+    """Box statistics (`BOX_STATS`) and the linear mean (`compute_linear_mean`) of `lcn2` (time, ...) per calendar month
+    and hour: (month, hour, stat, ...) and (month, hour, ...)."""
+    stats = np.empty((12, len(hours), len(BOX_STATS), *lcn2.shape[1:]), dtype=np.float32)
+    lmean = np.empty((12, len(hours), *lcn2.shape[1:]), dtype=np.float32)
+    for i, m in enumerate(range(1, 13)):
+        for j, h in enumerate(hours):
+            a = lcn2[(times.month == m) & (times.hour == h)]
+            stats[i, j] = compute_stats(a, box=True)
+            lmean[i, j] = compute_linear_mean(a)
+    return stats, lmean
+
+
 def compute_all(values: dict[str, np.ndarray], groups: dict) -> dict[str, dict[str, np.ndarray]]:
     """{grouping: {variable: (group, [stat,] ...)}} of `values` (time first), with `lcn2_linear_mean`."""
     out = {}
@@ -151,12 +167,13 @@ if __name__ == "__main__":
     ds = open_predictions()
     times = pd.DatetimeIndex(ds["time"].values)
     groups = make_groups(times)
+    hours = sorted(set(times.hour))
     n_lat, n_lon = ds.sizes["lat"], ds.sizes["lon"]
     print(f"{len(months)} months, {len(times)} time steps, {n_lat} x {n_lon} grid points")
     OUT.mkdir(exist_ok=True)
 
     # Per grid point: the latitude bands of the store chunks
-    bands = []
+    bands, bands_diurnal = [], []
     for i in tqdm(range(0, n_lat, CHUNKS["lat"]), desc="grid", unit="band", dynamic_ncols=True):
         band = ds.isel(lat=slice(i, i + CHUNKS["lat"])).transpose("time", "lat", "lon", "bottom_top").load()
         values = {v: band[v].values for v in ["lcn2", "r0", "lsi2"]}
@@ -164,6 +181,7 @@ if __name__ == "__main__":
         values["si2"] = 10.0 ** values["lsi2"]
         values["cn2"] = 10.0 ** values["lcn2"]
         bands.append(compute_all(values, groups))
+        bands_diurnal.append(compute_diurnal(values["lcn2"], times, hours))
         del band, values
     # bands along lat: (group, [stat,] lat, lon[, bottom_top]), lat the axis -3 (lcn2) or -2 (per profile)
     grid = {
@@ -193,11 +211,16 @@ if __name__ == "__main__":
         for k, v in enumerate(["lcn2", "cn2", "lcn2_linear_mean"]):
             domain[g][v] = np.concatenate([b[g][k] for b in blocks], axis=-1)
 
-    # Diurnal cycle per grid point and calendar month, for box plots
-    hours = sorted(set(times.hour))
+    # Diurnal cycle per grid point and calendar month, for box plots (lcn2 per height: of the bands, lat the axis -3)
     diurnal = xr.Dataset(
         coords={"month": range(1, 13), "hour": hours, "stat": BOX_STATS, "lat": ds["lat"], "lon": ds["lon"]}
-    )
+    ).assign_coords(z_agl=ds["z_agl"])
+    for k, (v, dims) in enumerate(
+        [("lcn2", ("month", "hour", "stat", "lat", "lon", "bottom_top")), ("lcn2_linear_mean", ("month", "hour", "lat", "lon", "bottom_top"))]
+    ):  # fmt: skip
+        a = np.concatenate([b[k] for b in bands_diurnal], axis=-3)
+        diurnal[v] = xr.DataArray(a, dims=dims, attrs=ATTRS[v])
+    del bands_diurnal
     for v, a in pooled.items():
         a = a.reshape(len(times), n_lat, n_lon)
         stats = [
@@ -205,8 +228,9 @@ if __name__ == "__main__":
         ]
         diurnal[v] = xr.DataArray(np.array(stats), dims=("month", "hour", "stat", "lat", "lon"), attrs=ATTRS[v])
 
-    # The same as distributions, for violin plots
+    # The same as distributions, for violin plots; and per calendar month (all hours), in the same bins
     violin = xr.Dataset(coords={"month": range(1, 13), "hour": hours, "lat": ds["lat"], "lon": ds["lon"]})
+    violin_month = xr.Dataset(coords={"month": range(1, 13), "lat": ds["lat"], "lon": ds["lon"]})
     for v, (n_bins, top) in tqdm(VIOLIN_VARS.items(), desc="violin", unit="var", dynamic_ncols=True):
         a = pooled[v]
         x = np.linspace(a.min(), np.percentile(a, top), n_bins)  # bin centres
@@ -216,10 +240,15 @@ if __name__ == "__main__":
         ]
         violin = violin.assign_coords({f"{v}_x": (f"{v}_x", x, ATTRS[v])})
         violin[v] = xr.DataArray(np.array(dens), dims=("month", "hour", f"{v}_x", "lat", "lon"), attrs=ATTRS[v])
+        dens = [compute_density(a[times.month == m], x).reshape(-1, n_lat, n_lon) for m in range(1, 13)]
+        violin_month = violin_month.assign_coords({f"{v}_x": (f"{v}_x", x, ATTRS[v])})
+        violin_month[v] = xr.DataArray(np.array(dens), dims=("month", f"{v}_x", "lat", "lon"), attrs=ATTRS[v])
 
     attrs = {"months": " ".join(sorted(months)), "n_months": len(months), **ds.attrs}
-    diurnal.assign_attrs(attrs).to_netcdf(OUT / "grid_month_hour.nc")
+    compress = {v: {"zlib": True, "complevel": 4} for v in ("lcn2", "lcn2_linear_mean")}
+    diurnal.assign_attrs(attrs).to_netcdf(OUT / "grid_month_hour.nc", encoding=compress)
     violin.assign_attrs(attrs).to_netcdf(OUT / "grid_month_hour_violin.nc")
+    violin_month.assign_attrs(attrs).to_netcdf(OUT / "grid_month_violin.nc")
     for g in groups:
         out = to_dataset(grid[g], g, groups, {"lat": ds["lat"], "lon": ds["lon"], "z_agl": ds["z_agl"]}, ("lat", "lon"))
         out.assign_attrs(attrs).to_netcdf(OUT / f"grid_{g}.nc")

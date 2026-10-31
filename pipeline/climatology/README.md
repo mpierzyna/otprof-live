@@ -55,19 +55,22 @@ uv run step_5_convert_webui.py              # 4_climatology → WEBUI_DATA/clima
   `lcn2_linear_mean` (log10 of the mean linear Cn2; the `mean` of `lcn2` is the log10 geometric mean). Per grid point
   (`grid_<grouping>.nc`) and pooled over the domain (`domain_<grouping>.nc`), for the groupings `all`, `season`,
   `month` and `hour` (UTC). The diurnal cycle of `r0`, `si2`, `lsi2` per grid point and calendar month is in
-  `grid_month_hour.nc` (dims month, hour, stat, lat, lon), with box-plot statistics: `n`, `mean`, `p5`, `p25`,
+  `grid_month_hour.nc` (dims month, hour, stat, lat, lon; lcn2 also, per height, with `lcn2_linear_mean`), with
+  box-plot statistics: `n`, `mean`, `p5`, `p25`,
   `median`, `p75`, `p95`, `iqr` (box p25 .. p75, whiskers p5 .. p95), and in `grid_month_hour_violin.nc` the same as
   distributions for violin plots: histograms of `r0` and `lsi2` in 100 bins over the range of the variable in all data
   and of the linear `si2` in 400 bins up to its 99.9th percentile (the far tail left out),
   smoothed with a Gaussian of Silverman's bandwidth per month, hour and grid point and cut to the range of the data of
-  each violin, scaled to a maximum of 1 per violin.
+  each violin, scaled to a maximum of 1 per violin; in `grid_month_violin.nc` the same per calendar month (all hours),
+  for violin plots of the annual cycle.
   Run again when more months are predicted; the months used are in the attribute `months`.
   During the download these are a Sobol sample of the years (step 1), so early statistics per calendar month rest on
   few years.
 - **step_5_convert_webui.py**: `grid_month.nc` and `grid_month_hour.nc` → the web app's climatology
   (`otprof-live-clim/1`, `docs/DATA_FORMAT.md`, writer `otprof_live.webui`) in `WEBUI_DATA/climatology/`: per calendar month the median, mean,
   p5, p25, p75, p95 of lcn2, r0 and lsi2, for lcn2 and lsi2 plus `lmean` (log10 of the mean of cn2, si2: the mean
-  the app shows in its linear scale), and the diurnal cycle of r0 and lsi2 (violins of lsi2 also of the linear si2). Adds `"climatology"` to `WEBUI_DATA/index.json`; the live pipeline keeps it there and its step 4 uploads the
+  the app shows in its linear scale), the diurnal cycle of lcn2 (per grid point), r0 and lsi2, and violins of the diurnal and the annual cycle of r0 and lsi2 (of lsi2 also of the
+  linear si2). Adds `"climatology"` to `WEBUI_DATA/index.json`; the live pipeline keeps it there and its step 4 uploads the
   directory with the cycles.
 
 ## ERA5 source: ARCO vs. CDS (checked 2026-10-27)

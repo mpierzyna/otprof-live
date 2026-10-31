@@ -277,6 +277,45 @@ input {
 .card-header {
   padding: 14px 16px 0;
 }
+/* Loading: shown only if it takes a moment */
+.spinner {
+  display: inline-block;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation:
+    spin 0.8s linear infinite,
+    appear 0s 0.15s both;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes appear {
+  from {
+    visibility: hidden;
+  }
+}
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.map-spinner {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  display: flex;
+  padding: 7px;
+  animation: appear 0s 0.15s both;
+}
+
 .card-title-row {
   display: flex;
   flex-wrap: wrap;
@@ -338,12 +377,6 @@ input {
 .diurnal-panel {
   grid-area: diurnal;
   padding-bottom: 8px;
-}
-.diurnal {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 0 16px;
-  padding: 8px 8px 0;
 }
 .notes-panel {
   grid-area: notes;
@@ -897,7 +930,8 @@ input[type="range"]:disabled {
   width: 100%;
   padding-bottom: 14px;
 }
-.th-panel .colorbar {
+.th-panel .colorbar,
+.diurnal-panel .colorbar {
   margin: 6px 0 0 60px;
   padding-bottom: 16px;
 }
@@ -963,6 +997,11 @@ input[type="range"]:disabled {
 .plot .strip-label {
   fill: var(--text);
   font-size: 12px;
+}
+.plot .heat-label rect {
+  /* on the heat map: a background against its colours */
+  fill: var(--panel);
+  opacity: 0.85;
 }
 .plot .profile {
   fill: none;
