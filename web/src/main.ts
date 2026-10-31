@@ -4,6 +4,7 @@ import { format } from "d3-format";
 import { utcFormat } from "d3-time-format";
 import { Colormap, drawColorbar } from "./colormap";
 import { loadConfig } from "./config";
+import { numberFormat } from "./format";
 import { Climatology, Cycle, type Dataset, loadIndex, nearestIndex } from "./data";
 import { MapView } from "./map";
 import { renderNotes } from "./notes";
@@ -23,11 +24,11 @@ const STAT_LABELS: Record<string, string> = {
   p25: "25th percentile",
   p75: "75th percentile",
   p95: "95th percentile",
-  lmean: "Mean of linear Cₙ²",
+  lmean: "Mean of the linear values",
 };
 const statLabel = (stat: string) => STAT_LABELS[stat] ?? stat;
 /** The statistic buttons with short labels, in two groups (the distribution from low to high, the means): side by side,
- * or one below the other on narrow screens. */
+ * or one below the other on narrow screens. The means of a variable shown linearly are relabelled (`statButton`). */
 const STAT_BUTTONS: [string, string][][] = [
   [
     ["p5", "5th"],
@@ -165,13 +166,31 @@ async function main() {
 
   // Presentation per variable: config.json first, then the data
   const vc = (name: string) => config.variables[name] ?? {};
-  const label = (name: string) => vc(name).label ?? data.variables[name]?.long_name ?? name;
-  const units = (name: string) => vc(name).units ?? data.variables[name]?.units ?? "";
+  /** A variable stored as log₁₀ (config `linear`) shown as 10^value: the log₁₀ switch is off. Values, ranges and
+   * statistics are converted only for showing them (`shown`, `shownArr`, `shownRange`). */
+  const linear = (name: string) => !st().logValues && !!vc(name).linear;
+  const shown = (name: string, v: number) => (linear(name) ? 10 ** v : v);
+  const shownArr = <T extends Float32Array | undefined>(name: string, a: T): T =>
+    a && linear(name) ? (a.map((v) => 10 ** v) as T) : a;
+  const shownRange = (name: string, [lo, hi]: [number, number]): [number, number] => [shown(name, lo), shown(name, hi)];
+  const lin = (name: string) => (linear(name) ? vc(name).linear : undefined);
+  const label = (name: string) => lin(name)?.label ?? vc(name).label ?? data.variables[name]?.long_name ?? name;
+  const units = (name: string) => lin(name)?.units ?? vc(name).units ?? data.variables[name]?.units ?? "";
   const fullLabel = (name: string) => (units(name) && units(name) !== "1" ? `${label(name)} [${units(name)}]` : label(name)); // fmt: skip
   const fmt = (name: string) => {
+    if (linear(name)) return numberFormat(lin(name)?.format ?? ".3~r");
     const f = format(vc(name).format ?? ".2f");
     return (v: number) => (Number.isNaN(v) ? "–" : f(v).replace("-", "−"));
   };
+  /** The two means of a log₁₀ variable: `mean` (of the log₁₀ values: the geometric mean of the linear values) and
+   * `lmean` (of the linear values), named for the scale shown. */
+  const statName = (stat: string, name: string) => {
+    const unit = vc(name).linear?.label ?? label(name);
+    if (stat === "lmean") return linear(name) ? "Mean" : `Mean of linear ${unit}`;
+    return stat === "mean" && linear(name) ? "Geometric mean" : statLabel(stat);
+  };
+  const statButton = (stat: string, text: string, name: string) =>
+    linear(name) && stat === "mean" ? "Geom. mean" : linear(name) && stat === "lmean" ? "Mean" : text;
   const cmaps = new Map<string, Colormap>();
   const cmap = (name: string) => {
     if (!cmaps.has(name)) cmaps.set(name, new Colormap(vc(name).colormap, vc(name).reverse));
@@ -251,6 +270,7 @@ async function main() {
     diurnalKind: "box",
     heightScale: config.heightScale,
     colourPerHeight: config.colourPerHeight,
+    logValues: hash.logValues ?? config.logValues,
   });
   const st = () => store.state;
 
@@ -275,7 +295,7 @@ async function main() {
       tooltip.hidden = cell < 0 || !point;
       if (tooltip.hidden || !point) return;
       const s = st();
-      const v = data.value(s.variable, s.lead, s.zi, cell, statFor(s.variable));
+      const v = shown(s.variable, data.value(s.variable, s.lead, s.zi, cell, statFor(s.variable)));
       tooltip.textContent = `${cellLabel(cell)}: ${fmt(s.variable)(v)} ${units(s.variable) === "1" ? "" : units(s.variable)}`; // fmt: skip
       tooltip.style.transform = `translate(${point.x + 14}px, ${point.y + 14}px)`;
     },
@@ -294,6 +314,7 @@ async function main() {
   const play = $<HTMLButtonElement>("play");
   const logHeight = $<HTMLInputElement>("log-height");
   const colourZ = $<HTMLInputElement>("colour-z");
+  const logValues = $<HTMLInputElement>("log-values");
   const speed = $<HTMLButtonElement>("speed");
   let speedIndex = 1;
   const newer = $<HTMLButtonElement>("newer");
@@ -319,6 +340,7 @@ async function main() {
   logHeight.addEventListener("change", () => store.set({ heightScale: logHeight.checked ? "log" : "linear" }));
   colourZ.checked = st().colourPerHeight;
   colourZ.addEventListener("change", () => store.set({ colourPerHeight: colourZ.checked }));
+  logValues.addEventListener("change", () => store.set({ logValues: logValues.checked }));
   speed.addEventListener("click", () => {
     speedIndex = (speedIndex + 1) % SPEEDS.length;
     speed.textContent = SPEEDS[speedIndex][1];
@@ -380,7 +402,7 @@ async function main() {
           b.type = "button";
           b.dataset.stat = stat;
           b.textContent = text;
-          b.title = statLabel(stat);
+          b.dataset.text = text;
           b.addEventListener("click", () => store.set({ stat }));
           group.append(b);
         }
@@ -426,11 +448,11 @@ async function main() {
   // Rendering
   function renderMap() {
     const s = st();
-    const [lo, hi] = mapRange(s.variable, s.zi, s.colourPerHeight);
+    const [lo, hi] = shownRange(s.variable, mapRange(s.variable, s.zi, s.colourPerHeight));
     const stat = statFor(s.variable);
-    mapView.draw(data.field(s.variable, s.lead, s.zi, stat), cmap(s.variable), lo, hi);
+    mapView.draw(shownArr(s.variable, data.field(s.variable, s.lead, s.zi, stat)), cmap(s.variable), lo, hi);
     const atZ = data.profileVars.includes(s.variable) ? ` at ${formatHeight(data.z[s.zi])}` : "";
-    const ofStat = stat ? `, ${statLabel(stat).toLowerCase()}` : "";
+    const ofStat = stat ? `, ${statName(stat, s.variable).toLowerCase()}` : "";
     drawColorbar($("colorbar"), cmap(s.variable), [lo, hi], `${fullLabel(s.variable)}${ofStat}${atZ}`);
   }
 
@@ -444,7 +466,7 @@ async function main() {
     if (c && stat) {
       const years = c.meta.years[s.lead] ?? [];
       const sample = years.length > 3 ? `${years.length} years, ${years[0]}–${years.at(-1)}` : `${years.length > 1 ? "years" : "year"} ${years.join(", ")}`; // fmt: skip
-      when = `${when}, ${statLabel(stat).toLowerCase()} · ${sample}`;
+      when = `${when}, ${statName(stat, pv!).toLowerCase()} · ${sample}`;
     }
     $("profile-sub").textContent = s.cell >= 0 ? `${cellLabel(s.cell)} · ${when}` : "Click the map to select a point";
     const values = $("column-values");
@@ -453,7 +475,7 @@ async function main() {
       const chip = document.createElement("span");
       chip.className = name === s.variable ? "chip active" : "chip";
       const u = units(name) === "1" ? "" : ` ${units(name)}`;
-      chip.textContent = `${label(name)} ${fmt(name)(data.value(name, s.lead, 0, s.cell, statFor(name)))}${u}`;
+      chip.textContent = `${label(name)} ${fmt(name)(shown(name, data.value(name, s.lead, 0, s.cell, statFor(name))))}${u}`;
       values.append(chip);
     }
     if (!pv || s.cell < 0) return drawLegend($("profile-legend"), []);
@@ -465,7 +487,7 @@ async function main() {
     if (c) {
       const band = (lo: string, hi: string) => ({ z: data.z, lo: data.profile(pv, s.lead, s.cell, lo), hi: data.profile(pv, s.lead, s.cell, hi) }); // fmt: skip
       bands = [band("p5", "p95"), band("p25", "p75")].filter((b) => b.lo && b.hi) as typeof bands;
-      drawLegend($("profile-legend"), [["", statLabel(stat!)], ...percentiles]);
+      drawLegend($("profile-legend"), [["", statName(stat!, pv)], ...percentiles]);
     } else {
       const behind = climBehind(pv, s);
       if (behind) {
@@ -479,14 +501,14 @@ async function main() {
     }
     profileView.draw({
       z: data.z,
-      profile: data.profile(pv, s.lead, s.cell, stat),
+      profile: shownArr(pv, data.profile(pv, s.lead, s.cell, stat)),
       live: !c,
-      bands,
-      reference,
+      bands: bands.map((b) => ({ ...b, lo: shownArr(pv, b.lo), hi: shownArr(pv, b.hi) })),
+      reference: reference && { ...reference, values: shownArr(pv, reference.values) },
       zi: s.zi,
       showZ: data.profileVars.includes(s.variable),
       heightScale: s.heightScale,
-      xDomain,
+      xDomain: shownRange(pv, xDomain),
       xLabel: fullLabel(pv),
       fmt: fmt(pv),
     });
@@ -499,7 +521,7 @@ async function main() {
     const c = climOf(data);
     const stat = statFor(pv);
     $("th-title").textContent = c
-      ? `Annual cycle of ${label(pv)} (${statLabel(stat!).toLowerCase()}) at ${cellLabel(s.cell)}`
+      ? `Annual cycle of ${label(pv)} (${statName(stat!, pv).toLowerCase()}) at ${cellLabel(s.cell)}`
       : `${label(pv)} at ${cellLabel(s.cell)}`;
     thView.draw({
       cycle: data,
@@ -509,9 +531,15 @@ async function main() {
       zi: s.zi,
       heightScale: s.heightScale,
       cmap: cmap(pv),
-      range: globalRange(pv),
+      range: shownRange(pv, globalRange(pv)),
       fmt: fmt(pv),
-      columns: data.columnVars.map((name) => ({ name, label: fullLabel(name), fmt: fmt(name) })),
+      tf: linear(pv) ? (v) => 10 ** v : undefined,
+      columns: data.columnVars.map((name) => ({
+        name,
+        label: fullLabel(name),
+        fmt: fmt(name),
+        tf: linear(name) ? (v: number) => 10 ** v : undefined,
+      })),
       stepLabel,
       from: firstStep,
       showZ: data.profileVars.includes(s.variable),
@@ -519,7 +547,7 @@ async function main() {
       band: c ? ["p25", "p75"] : undefined,
       months: !!c,
     });
-    drawColorbar($("th-colorbar"), cmap(pv), globalRange(pv), fullLabel(pv));
+    drawColorbar($("th-colorbar"), cmap(pv), shownRange(pv, globalRange(pv)), fullLabel(pv));
   }
 
   function renderDiurnal() {
@@ -531,30 +559,50 @@ async function main() {
     $("diurnal-kind").hidden = !c.violinVars.length;
     for (const b of $("diurnal-kind").querySelectorAll<HTMLButtonElement>("button"))
       b.setAttribute("aria-pressed", String(b.dataset.kind === kind));
+    // Shown linearly, the mean is that of the linear values (lmean) if there; else the geometric mean
+    const geometric = c.diurnalVars.filter((n) => linear(n) && !c.variables[n].diurnal?.stats.includes("lmean")).map(label); // fmt: skip
+    const mean = geometric.length ? `Mean (geometric of ${geometric.join(", ")})` : "Mean";
     drawLegend(
       $("diurnal-legend"),
       kind === "violin"
-        ? [["violin", "Distribution"], ["box", "25th–75th percentile"], ["", "Median"], ["dot", "Mean"]]
-        : [["box", "25th–75th percentile"], ["whisker", "5th–95th percentile"], ["", "Median"], ["dot", "Mean"]],
+        ? [["violin", "Distribution"], ["box", "25th–75th percentile"], ["", "Median"], ["dot", mean]]
+        : [["box", "25th–75th percentile"], ["whisker", "5th–95th percentile"], ["", "Median"], ["dot", mean]],
     );
     if (kind === "box") return drawDiurnal(c, kind);
     // Violins: drawn once the month is loaded (at once if it is), the previous plot stays until then
     const lead = s.lead;
     const current = () => climOf(data) === c && st().lead === lead && st().diurnalKind === "violin";
-    void c.loadViolins(lead).then(() => current() && drawDiurnal(c, "violin"));
+    void c.loadViolins(lead, linear).then(() => current() && drawDiurnal(c, "violin"));
   }
   function drawDiurnal(c: Climatology, kind: "box" | "violin") {
     const s = st();
     diurnalView.draw(
       c.meta.hours,
       kind,
-      c.diurnalVars.map((name) => ({
-        label: fullLabel(name),
-        fmt: fmt(name),
-        boxes: c.diurnal(name, s.lead, s.cell) as BoxStats | undefined,
-        violins: c.violin(name, s.lead, s.cell) as Violins | undefined,
-      })),
+      c.diurnalVars.map((name) => {
+        const day = c.diurnal(name, s.lead, s.cell);
+        const boxes = day && (Object.fromEntries(Object.entries(day).map(([k, a]) => [k, shownArr(name, a)])) as BoxStats); // fmt: skip
+        if (boxes?.lmean && linear(name)) boxes.mean = boxes.lmean; // the mean of the linear values
+        return {
+          label: fullLabel(name),
+          fmt: fmt(name),
+          boxes,
+          violins: shownViolins(name, c.violin(name, s.lead, s.cell, linear(name))),
+        };
+      }),
     );
+  }
+  /** Violins of a log₁₀ variable shown linearly: those of the linear values if the data have them, else the log₁₀
+   * densities per linear unit (divided by 10^value), scaled to a maximum of 1 again. */
+  function shownViolins(name: string, v: (Violins & { linear: boolean }) | undefined): Violins | undefined {
+    if (!v || !linear(name) || v.linear) return v;
+    const x = v.x.map((e) => 10 ** e);
+    const density = v.density.map((d) => {
+      const per = d.map((p, i) => p / x[i]);
+      const max = per.reduce((m, p) => (p > m ? p : m), 0);
+      return max > 0 ? per.map((p) => p / max) : per;
+    });
+    return { x, density };
   }
   let thTimer = 0;
   function scheduleTimeHeight() {
@@ -575,8 +623,16 @@ async function main() {
     fill(heightInput);
     $("play-icon").setAttribute("d", s.playing ? ICON_PAUSE : ICON_PLAY);
     play.setAttribute("aria-label", s.playing ? "Pause" : "Play");
-    for (const b of $("var-switch").querySelectorAll("button"))
+    for (const b of $("var-switch").querySelectorAll<HTMLButtonElement>("button")) {
       b.setAttribute("aria-pressed", String(b.dataset.name === s.variable));
+      b.textContent = label(b.dataset.name!);
+    }
+    // log₁₀ or linear: for the variables stored as log₁₀ (the others keep the switch, disabled)
+    logValues.checked = s.logValues;
+    logValues.disabled = !vc(s.variable).linear;
+    $("log-values-group").title = logValues.disabled
+      ? `${label(s.variable)} has no logarithmic scale`
+      : "Logarithmic (log₁₀) or linear values of Cₙ² and σᵢ²";
     $("colour-z-group").hidden = !data.profileVars.includes(s.variable);
     const latest = latestCycle();
     newer.hidden = !(data instanceof Cycle) || data.id === latest;
@@ -588,7 +644,9 @@ async function main() {
       for (const b of statGroup.querySelectorAll<HTMLButtonElement>("button")) {
         const has = c.stats(s.variable).includes(b.dataset.stat!);
         b.disabled = !has;
-        b.title = has ? statLabel(b.dataset.stat!) : `${statLabel(b.dataset.stat!)}: not available for ${label(s.variable)}`;
+        const name = statName(b.dataset.stat!, s.variable);
+        b.textContent = statButton(b.dataset.stat!, b.dataset.text!, s.variable);
+        b.title = has ? name : `${name}: not available for ${label(s.variable)}`;
         b.setAttribute("aria-pressed", String(b.dataset.stat === statFor(s.variable)));
       }
     }
@@ -621,12 +679,12 @@ async function main() {
   store.subscribe((s, ch) => {
     const any = (...keys: (keyof State)[]) => keys.some((k) => ch.has(k));
     if (any("lead")) void data.loadStep(s.lead);
-    if (any("variable", "lead", "zi", "colourPerHeight", "stat")) renderMap();
+    if (any("variable", "lead", "zi", "colourPerHeight", "stat", "logValues")) renderMap();
     if (any("cell")) mapView.setSelection(s.cell);
-    if (any("variable", "lead", "zi", "cell", "heightScale", "stat")) renderProfile();
-    if (any("variable", "cell", "heightScale", "stat")) renderTimeHeight();
+    if (any("variable", "lead", "zi", "cell", "heightScale", "stat", "logValues")) renderProfile();
+    if (any("variable", "cell", "heightScale", "stat", "logValues")) renderTimeHeight();
     else if (any("lead", "zi")) thView.setCursor(data, s.lead, s.zi);
-    if (any("lead", "cell", "diurnalKind")) renderDiurnal();
+    if (any("lead", "cell", "diurnalKind", "logValues")) renderDiurnal();
     renderControls();
     if (any("playing")) schedulePlay();
     history.replaceState(null, "", toHash(s, data));
@@ -655,7 +713,7 @@ async function main() {
     await mapView.setCycle(data);
     const r = resolve(h, data, fallback(data));
     r.lead = limitSteps(r.lead, explicit && (h.leadHours !== undefined || h.month !== undefined));
-    store.state = { ...st(), mode: climOf(data) ? "clim" : "live", ...(data instanceof Cycle && { cycle: data.id }), ...r }; // fmt: skip
+    store.state = { ...st(), mode: climOf(data) ? "clim" : "live", ...(data instanceof Cycle && { cycle: data.id }), ...r, ...(h.logValues !== undefined && { logValues: h.logValues }) }; // fmt: skip
     await data.loadStep(r.lead);
     renderAll();
     void data.loadAll(r.lead, firstStep);
@@ -696,7 +754,7 @@ async function main() {
     const before = firstStep;
     const r = resolve(h, data, { ...st() });
     r.lead = limitSteps(r.lead, h.leadHours !== undefined);
-    store.set({ ...r, playing: false });
+    store.set({ ...r, playing: false, ...(h.logValues !== undefined && { logValues: h.logValues }) });
     if (firstStep !== before) {
       renderTimeHeight();
       renderControls();

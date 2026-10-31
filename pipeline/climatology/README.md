@@ -49,7 +49,7 @@ uv run step_5_convert_webui.py              # 4_climatology → WEBUI_DATA/clima
   `QKE`, `TSQ`, `EL_PBL` are dropped). Same time axis as the ERA5 store; months not predicted yet are NaN;
   `list_months_predicted()` lists the months written, `open_predictions()` opens only those. ~25 s per month on the
   Quadro P5000 (torch 2.14 cu126, see `pyproject.toml`; ~2 min on 96 CPUs), ~2 h for all 258 months.
-- **step_4_climatology.py**: `lcn2`, `r0`, `si2` (= 10^`lsi2`) and `lsi2` over the predicted months: `n`, `mean`, `std`,
+- **step_4_climatology.py**: `lcn2`, `cn2` (= 10^`lcn2`), `r0`, `si2` (= 10^`lsi2`) and `lsi2` over the predicted months (the log10 variables and their linear values each from the samples: same percentiles, different moments): `n`, `mean`, `std`,
   `min`, `max`, `median`, `iqr` and the percentiles 0.01, 0.05, 0.1, 0.5, 2.5, 5, 25, 75, 95, 97.5, 99.5, 99.9, 99.95,
   99.99 (dim `stat`; the low end mirrors the high end), plus
   `lcn2_linear_mean` (log10 of the mean linear Cn2; the `mean` of `lcn2` is the log10 geometric mean). Per grid point
@@ -57,7 +57,8 @@ uv run step_5_convert_webui.py              # 4_climatology → WEBUI_DATA/clima
   `month` and `hour` (UTC). The diurnal cycle of `r0`, `si2`, `lsi2` per grid point and calendar month is in
   `grid_month_hour.nc` (dims month, hour, stat, lat, lon), with box-plot statistics: `n`, `mean`, `p5`, `p25`,
   `median`, `p75`, `p95`, `iqr` (box p25 .. p75, whiskers p5 .. p95), and in `grid_month_hour_violin.nc` the same as
-  distributions for violin plots: histograms of `r0` and `lsi2` in 100 bins over the range of the variable in all data,
+  distributions for violin plots: histograms of `r0` and `lsi2` in 100 bins over the range of the variable in all data
+  and of the linear `si2` in 400 bins up to its 99.9th percentile (the far tail left out),
   smoothed with a Gaussian of Silverman's bandwidth per month, hour and grid point and cut to the range of the data of
   each violin, scaled to a maximum of 1 per violin.
   Run again when more months are predicted; the months used are in the attribute `months`.
@@ -65,8 +66,8 @@ uv run step_5_convert_webui.py              # 4_climatology → WEBUI_DATA/clima
   few years.
 - **step_5_convert_webui.py**: `grid_month.nc` and `grid_month_hour.nc` → the web app's climatology
   (`otprof-live-clim/1`, `docs/DATA_FORMAT.md`, writer `otprof_live.webui`) in `WEBUI_DATA/climatology/`: per calendar month the median, mean,
-  p5, p25, p75, p95 of lcn2 (plus `lmean`, from `lcn2_linear_mean`), r0 and lsi2, and the diurnal cycle of r0 and
-  lsi2. Adds `"climatology"` to `WEBUI_DATA/index.json`; the live pipeline keeps it there and its step 4 uploads the
+  p5, p25, p75, p95 of lcn2, r0 and lsi2, for lcn2 and lsi2 plus `lmean` (log10 of the mean of cn2, si2: the mean
+  the app shows in its linear scale), and the diurnal cycle of r0 and lsi2 (violins of lsi2 also of the linear si2). Adds `"climatology"` to `WEBUI_DATA/index.json`; the live pipeline keeps it there and its step 4 uploads the
   directory with the cycles.
 
 ## ERA5 source: ARCO vs. CDS (checked 2026-10-27)

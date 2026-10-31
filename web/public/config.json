@@ -14,7 +14,11 @@
       "label": "log₁₀ Cₙ²",
       "units": "log₁₀ m⁻²ᐟ³",
       "colormap": "magma",
-      "format": ".2f"
+      "format": ".2f",
+      "linear": {
+        "label": "Cₙ²",
+        "units": "m⁻²ᐟ³"
+      }
     },
     "r0": {
       "label": "r₀",
@@ -27,7 +31,11 @@
       "units": "1",
       "colormap": "YlGnBu",
       "reverse": true,
-      "format": ".2f"
+      "format": ".2f",
+      "linear": {
+        "label": "σᵢ²",
+        "units": "1"
+      }
     }
   },
   "defaults": {

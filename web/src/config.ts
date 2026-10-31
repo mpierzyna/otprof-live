@@ -7,6 +7,8 @@ export interface VarConfig {
   reverse?: boolean;
   range?: [number, number]; // colour range, overrides the data's display_range
   format?: string; // d3-format specifier for values
+  /** The variable is stored as log₁₀: shown as 10^value (label, units and format of that) when log₁₀ is switched off */
+  linear?: { label?: string; units?: string; format?: string };
 }
 
 export interface Config {
@@ -20,6 +22,7 @@ export interface Config {
   playIntervalMs: number;
   heightScale: "log" | "linear";
   colourPerHeight: boolean;
+  logValues: boolean; // variables stored as log₁₀ shown as log₁₀ (true) or linearly
   variables: Record<string, VarConfig>;
   defaults: { variable?: string; z?: number; lat?: number; lon?: number };
 }
@@ -32,6 +35,7 @@ const DEFAULTS: Config = {
   playIntervalMs: 400,
   heightScale: "log",
   colourPerHeight: true,
+  logValues: true,
   variables: {},
   defaults: {},
 };

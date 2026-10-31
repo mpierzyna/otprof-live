@@ -123,7 +123,7 @@ Statistics per calendar month, written by `pipeline/src/otprof_live/webui.py` (`
 | `months` | calendar months (1 to 12), the steps of the time axis. |
 | `hours` | hours [UTC] of the diurnal cycle. |
 | `years` | per month, the years in the sample (shown in the app: months from few years are less representative). |
-| `stats` | all statistics, in the order the app offers them. `median`, `mean`, `pN` (Nth percentile); `lmean` is the log10 of the mean linear Cn2 (lcn2 only). The app needs `p5`, `p25`, `p75`, `p95` for the bands. |
+| `stats` | all statistics, in the order the app offers them. `median`, `mean`, `pN` (Nth percentile); `lmean` is the log10 of the mean of the linear values of a log10 variable (lcn2, lsi2; `mean` is the mean of the log10 values, the log10 of the geometric mean). The app shows `lmean` as the mean when it shows such a variable linearly (10^value); the percentiles are the same in both scales. The app needs `p5`, `p25`, `p75`, `p95` for the bands. |
 
 Per variable, in addition to the cycle keys:
 
@@ -135,6 +135,7 @@ Per variable, in addition to the cycle keys:
 | `display_ranges`, `display_ranges_z` | per statistic, the colour scale range (and per height), over all months. |
 | `diurnal` | optional diurnal cycle, `[month][hour][stat][lat][lon]` with its own `stats`, same encoding as the variable. |
 | `violin` | optional distributions of the diurnal cycle for violin plots: densities scaled to a maximum of 1 per month, hour and cell at the bin centres `x` of the variable, with their own encoding (`dtype` `uint8`, `scale`, `offset`, `fill`); `files`: one per month, each `[lat][lon][hour][x]` (each violin contiguous: compresses well). The app loads the month shown when the violins are on (~0.6 MB per variable and month, ~0.13 MB with gzip). |
+| `violin_linear` | optional, of a log10 variable: the same of its linear values (`x` linear, 10^value), estimated in linear space; the app uses them when it shows the variable linearly. |
 
 ## Serving
 

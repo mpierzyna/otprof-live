@@ -26,6 +26,11 @@ CLIM_DIR = "climatology"  # directory of the climatology in a data root
 # Climatology: exported variables (the app shows them in this order) and statistics
 CLIM_VARIABLES = ["lcn2", "r0", "lsi2"]
 CLIM_STATS = ["median", "mean", "p5", "p25", "p75", "p95"]  # the box statistics, also those of the diurnal cycle
+# Variables stored as log10 and their linear counterparts in the climatology files: their statistics get `lmean`, the
+# log10 of the mean of the linear values (the app's mean when it shows them linearly; `mean` is the mean of the log10,
+# the log10 of the geometric mean), and their violins also come in linear values (`violin_linear`). The percentiles of
+# the linear values are those of the log10 (stored once, as log10: uint16 keeps their precision).
+LINEAR = {"lcn2": "cn2", "lsi2": "si2"}
 CLIM_NOTES = """\
 ## Climatology
 
@@ -137,29 +142,65 @@ def display_ranges(vals: np.ndarray, stats: list[str], per_z: bool = False) -> d
     return out
 
 
+def write_violins(violin: xr.Dataset, name: str, out: pathlib.Path, prefix: str) -> dict:
+    """The densities of `name` in `violin` as uint8, one file per month `<prefix>_violin_mMM.bin`; returns their meta."""
+    dens = violin[name].transpose("month", "lat", "lon", "hour", f"{name}_x").values
+    dens = np.where(dens < VIOLIN_MIN, 0, dens)
+    stored = np.where(np.isnan(dens), VIOLIN_FILL, np.round(dens * (VIOLIN_LEVELS - 1))).astype("u1")
+    meta = {
+        "dims": ["month", "lat", "lon", "hour", "x"],
+        "x": [float(v) for v in violin[f"{name}_x"].values],
+        "dtype": "uint8",
+        "scale": 1 / (VIOLIN_LEVELS - 1),
+        "offset": 0.0,
+        "fill": VIOLIN_FILL,
+        "files": [f"{prefix}_violin_m{m:02d}.bin" for m in violin["month"].values],
+    }
+    for file, block in zip(meta["files"], stored):
+        (out / file).write_bytes(block.tobytes())
+    return meta
+
+
 def write_climatology(
     grid: xr.Dataset, diurnal: xr.Dataset, out: pathlib.Path, violin: xr.Dataset | None = None
 ) -> dict:
     """`grid` (month, stat, lat, lon[, z]), `diurnal` (month, hour, stat, lat, lon) and optionally `violin` (densities
-    scaled to a maximum of 1, (month, hour, <var>_x, lat, lon)) → `out`; returns meta.json. The densities are stored as
+    scaled to a maximum of 1, (month, hour, <var>_x, lat, lon)) → `out`; returns meta.json. The linear variables of
+    `LINEAR` (e.g. `cn2`) give the `lmean` of their log10 variables and their `violin_linear`. The densities are stored as
     uint8 in `VIOLIN_LEVELS` levels (`VIOLIN_FILL` missing, tails below `VIOLIN_MIN` 0), one file per month, each violin
     contiguous ([lat][lon][hour][x]): ~0.6 MB per variable and month, ~0.13 MB with gzip. The app loads the month shown."""
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)
     variables = {}
+
+    def with_lmean(ds: xr.Dataset, name: str) -> tuple[xr.DataArray, list[str]]:
+        """The `CLIM_STATS` of `name`, and `lmean` if its linear variable is in `ds`."""
+        da = ds[name].sel(stat=CLIM_STATS)
+        lin = LINEAR.get(name)
+        if lin not in ds:
+            return da, CLIM_STATS
+        lmean = np.log10(ds[lin].sel(stat="mean")).expand_dims(stat=["lmean"], axis=list(ds[name].dims).index("stat"))
+        return xr.concat([da, lmean.transpose(*da.dims)], dim="stat"), [*CLIM_STATS, "lmean"]
+
     for name in CLIM_VARIABLES:
         has_z = "z" in grid[name].dims
-        da = grid[name].sel(stat=CLIM_STATS)
-        stats = CLIM_STATS
-        if name == "lcn2":
+        if name == "lcn2" and "cn2" not in grid:  # climatology before the linear Cn2 statistics
             lmean = grid["lcn2_linear_mean"].expand_dims(stat=["lmean"], axis=1)
-            da, stats = xr.concat([da, lmean], dim="stat"), [*CLIM_STATS, "lmean"]
+            da, stats = xr.concat([grid[name].sel(stat=CLIM_STATS), lmean], dim="stat"), [*CLIM_STATS, "lmean"]
+        else:
+            da, stats = with_lmean(grid, name)
+        if LINEAR.get(name) in grid:  # the percentiles of the linear values are those of the log10
+            lin = np.log10(grid[LINEAR[name]].sel(stat=["p5", "median", "p95"]))
+            diff = float(np.nanmax(np.abs(lin - grid[name].sel(stat=["p5", "median", "p95"]))))
+            logger.info(f"{name}: percentiles of the linear values vs. the log10 values: max. difference {diff:.2g} in log10")
         dims = ["month", "stat", "z", "lat", "lon"] if has_z else ["month", "stat", "lat", "lon"]
         vals = da.transpose(*dims).values.astype(np.float64)
         day = np.empty(0)
+        day_stats = CLIM_STATS
         if name in diurnal:
-            day = diurnal[name].sel(stat=CLIM_STATS).transpose("month", "hour", "stat", "lat", "lon").values
+            day_da, day_stats = with_lmean(diurnal, name)
+            day = day_da.transpose("month", "hour", "stat", "lat", "lon").values
         # One encoding for the monthly statistics and the diurnal cycle
         stored, encoding = quantize(np.concatenate([vals.ravel(), day.ravel().astype(np.float64)]))
         stored_day = stored[vals.size :].reshape(day.shape)
@@ -182,23 +223,12 @@ def write_climatology(
             var["file"] = f"{name}.bin"
             (out / var["file"]).write_bytes(stored.tobytes())
         if day.size:
-            var["diurnal"] = {"dims": ["month", "hour", "stat", "lat", "lon"], "stats": CLIM_STATS, "file": f"{name}_diurnal.bin"}
+            var["diurnal"] = {"dims": ["month", "hour", "stat", "lat", "lon"], "stats": day_stats, "file": f"{name}_diurnal.bin"}
             (out / var["diurnal"]["file"]).write_bytes(stored_day.tobytes())
         if violin is not None and name in violin:
-            dens = violin[name].transpose("month", "lat", "lon", "hour", f"{name}_x").values
-            dens = np.where(dens < VIOLIN_MIN, 0, dens)
-            stored_violin = np.where(np.isnan(dens), VIOLIN_FILL, np.round(dens * (VIOLIN_LEVELS - 1))).astype("u1")
-            var["violin"] = {
-                "dims": ["month", "lat", "lon", "hour", "x"],
-                "x": [float(v) for v in violin[f"{name}_x"].values],
-                "dtype": "uint8",
-                "scale": 1 / (VIOLIN_LEVELS - 1),
-                "offset": 0.0,
-                "fill": VIOLIN_FILL,
-                "files": [f"{name}_violin_m{m:02d}.bin" for m in violin["month"].values],
-            }
-            for file, block in zip(var["violin"]["files"], stored_violin):
-                (out / file).write_bytes(block.tobytes())
+            var["violin"] = write_violins(violin, name, out, name)
+        if violin is not None and LINEAR.get(name) in violin:
+            var["violin_linear"] = write_violins(violin, LINEAR[name], out, f"{name}_linear")
         variables[name] = var
 
     months = grid.attrs["months"].split()  # "YYYY-MM" of the sample

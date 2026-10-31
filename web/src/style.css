@@ -325,6 +325,12 @@ input {
   align-items: center;
   gap: 10px 24px;
 }
+.var-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
 .th-panel {
   grid-area: th;
   padding-bottom: 12px;
@@ -439,6 +445,11 @@ input {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+@media (min-width: 861px) {
+  #cycle-group {
+    margin-left: auto; /* the forecast run at the right end of the row */
+  }
 }
 .field {
   display: inline-flex;
@@ -713,6 +724,11 @@ input[type="range"]:disabled {
   background: var(--accent-soft);
   color: var(--accent);
 }
+.filter-chip:has(input:disabled) {
+  opacity: 0.45;
+  cursor: default;
+  pointer-events: none;
+}
 .filter-chip:has(input:focus-visible) {
   outline: 2px solid var(--accent-soft);
 }
@@ -826,6 +842,56 @@ input[type="range"]:disabled {
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--panel) 94%, transparent);
   box-shadow: var(--shadow);
+}
+/* Height slider under the map's zoom buttons: vertical, the ground at the bottom */
+.height-overlay {
+  position: absolute;
+  top: 78px;
+  right: 10px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  box-sizing: border-box;
+  width: 62px; /* fits the longest height ("12.3 km"): the box does not change with the label */
+  padding: 6px 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  box-shadow: var(--shadow);
+}
+.height-overlay label {
+  color: var(--text-2);
+  font-size: 11px;
+}
+.height-overlay output {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.height-overlay input[type="range"] {
+  writing-mode: vertical-lr;
+  direction: rtl; /* minimum at the bottom */
+  touch-action: none;
+  width: 26px;
+  height: clamp(120px, 30vh, 240px);
+  margin-top: 6px;
+}
+.height-overlay input[type="range"]::-webkit-slider-runnable-track {
+  width: 4px;
+  height: 100%;
+  background: linear-gradient(to top, var(--accent) var(--pct), var(--border-strong) var(--pct));
+}
+.height-overlay input[type="range"]::-moz-range-track {
+  width: 4px;
+  height: 100%;
+  background: linear-gradient(to top, var(--accent) var(--pct), var(--border-strong) var(--pct));
+}
+.height-overlay input[type="range"]::-webkit-slider-thumb {
+  margin-top: 0;
+  margin-left: -6px;
 }
 .map-legend .colorbar {
   width: 100%;
@@ -1065,11 +1131,37 @@ input[type="range"]:disabled {
   z-index: 30;
 }
 
-.maplibregl-ctrl-attrib {
+/* MapLibre's controls in the theme colours (.map-panel: over MapLibre's own styles, loaded later) */
+.map-panel .maplibregl-ctrl.maplibregl-ctrl-attrib {
   font-size: 11px;
+  background: var(--panel);
+  color: var(--text-2);
+  box-shadow: var(--shadow);
 }
-.maplibregl-ctrl-group {
-  box-shadow: var(--shadow) !important;
-  border-radius: var(--radius-s) !important;
+.map-panel .maplibregl-ctrl-attrib a {
+  color: var(--text-2);
+}
+.map-panel .maplibregl-ctrl.maplibregl-ctrl-attrib .maplibregl-ctrl-attrib-button {
+  background-color: transparent;
+}
+.map-panel .maplibregl-ctrl-attrib-button:focus:not(:focus-visible),
+.map-panel .maplibregl-ctrl-group button:focus:not(:focus-visible) {
+  box-shadow: none;
+}
+.map-panel .maplibregl-ctrl-group {
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
   overflow: hidden;
+}
+.map-panel .maplibregl-ctrl-group button + button {
+  border-top-color: var(--border);
+}
+.map-panel .maplibregl-ctrl button:not(:disabled):hover {
+  background-color: var(--hover);
+}
+:root[data-theme="dark"] .map-panel .maplibregl-ctrl-icon,
+:root[data-theme="dark"] .map-panel .maplibregl-ctrl-attrib-button {
+  filter: invert(1) brightness(0.9);
 }

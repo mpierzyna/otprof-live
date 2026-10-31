@@ -47,7 +47,12 @@
 
       <section class="card controls" aria-label="What, when and where">
         <div class="controls-row">
-          <div id="var-switch" class="segmented" role="group" aria-label="Variable"></div>
+          <div class="var-group">
+            <div id="var-switch" class="segmented" role="group" aria-label="Variable"></div>
+            <label class="filter-chip" id="log-values-group">
+              <input id="log-values" type="checkbox" /> log₁₀
+            </label>
+          </div>
           <div id="cycle-group" class="field-group">
             <label class="field">
               <span>Forecast run</span>
@@ -77,16 +82,16 @@
             <output id="time-label"></output>
             <input id="time" type="range" min="0" max="0" step="1" value="0" />
           </div>
-          <div class="slider" id="height-group">
-            <label for="height">Height</label>
-            <output id="height-label"></output>
-            <input id="height" type="range" min="0" max="0" step="1" value="0" />
-          </div>
         </div>
       </section>
 
       <section class="card map-panel" aria-label="Map">
         <div id="map"></div>
+        <div class="height-overlay overlay" id="height-group" title="Height above ground (↑ ↓)">
+          <label for="height">Height</label>
+          <output id="height-label"></output>
+          <input id="height" type="range" min="0" max="0" step="1" value="0" aria-orientation="vertical" />
+        </div>
         <div class="map-legend overlay">
           <div id="colorbar" class="colorbar"></div>
           <label class="switch small" id="colour-z-group" title="Colour scale per height: log₁₀ Cₙ² spans orders of magnitude over the column">

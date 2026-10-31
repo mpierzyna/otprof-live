@@ -2,6 +2,7 @@
 
 import * as chromatic from "d3-scale-chromatic";
 import { scaleLinear } from "d3-scale";
+import { tickFormat } from "./format";
 
 const N = 256;
 
@@ -48,7 +49,7 @@ export function drawColorbar(el: HTMLElement, cmap: Colormap, [lo, hi]: [number,
   ctx.putImageData(img, 0, 0);
   const x = scaleLinear().domain([lo, hi]).range([0, width]);
   const ticks = x.ticks(Math.max(2, Math.floor(width / 60)));
-  const fmt = x.tickFormat(ticks.length);
+  const fmt = tickFormat(x, ticks.length);
   el.innerHTML = "";
   const title = document.createElement("div");
   title.className = "cb-label";

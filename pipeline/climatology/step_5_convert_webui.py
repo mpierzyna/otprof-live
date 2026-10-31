@@ -6,9 +6,9 @@ Run again whenever the climatology is recomputed. Step 4 of the live pipeline (.
     uv run step_5_convert_webui.py [<4_climatology dir>]
 
 Per calendar month and grid point: the statistics `CLIM_STATS` of lcn2 (per height), r0 and lsi2 (`grid_month.nc`),
-the log10 of the mean linear Cn2 as the extra statistic `lmean` of lcn2, and the diurnal cycle (3-hourly, UTC) of r0
-and lsi2 with the same statistics (`grid_month_hour.nc`) and as densities for violin plots
-(`grid_month_hour_violin.nc`, if there).
+the log10 of the mean of the linear values (cn2, si2) as the extra statistic `lmean` of lcn2 and lsi2, and the diurnal
+cycle (3-hourly, UTC) of r0 and lsi2 with the same statistics (`grid_month_hour.nc`) and as densities for violin
+plots (`grid_month_hour_violin.nc`, if there; lsi2 also of the linear si2, `violin_linear`).
 """
 
 import pathlib

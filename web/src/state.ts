@@ -1,5 +1,5 @@
 // Shared view state of all panels, mirrored in the URL hash: forecast #cycle=..&var=..&t=<lead h>&z=<m>&lat=..&lon=..,
-// climatology #mode=clim&var=..&month=<1-12>&stat=..&z=<m>&lat=..&lon=..
+// climatology #mode=clim&var=..&month=<1-12>&stat=..&z=<m>&lat=..&lon=..; log=0: log₁₀ variables shown linearly
 
 import { Climatology, type Cycle, type Dataset, nearestIndex } from "./data";
 
@@ -17,6 +17,7 @@ export interface State {
   playing: boolean;
   heightScale: "log" | "linear";
   colourPerHeight: boolean;
+  logValues: boolean; // variables stored as log₁₀ shown as log₁₀, else linearly
 }
 
 export type Key = keyof State;
@@ -55,6 +56,7 @@ export interface HashState {
   z?: number;
   lat?: number;
   lon?: number;
+  logValues?: boolean;
 }
 
 export function parseHash(hash: string): HashState {
@@ -70,6 +72,7 @@ export function parseHash(hash: string): HashState {
     z: num("z"),
     lat: num("lat"),
     lon: num("lon"),
+    logValues: p.get("log") === "0" ? false : p.get("log") === "1" ? true : undefined,
   };
 }
 
@@ -78,6 +81,7 @@ export function toHash(s: State, cycle: Dataset): string {
     cycle instanceof Climatology
       ? new URLSearchParams({ mode: "clim", var: s.variable, month: String(cycle.meta.months[s.lead]), stat: s.stat })
       : new URLSearchParams({ cycle: s.cycle, var: s.variable, t: String((cycle as Cycle).meta.lead_hours[s.lead]) }); // fmt: skip
+  if (!s.logValues) p.set("log", "0");
   if (cycle.nz) p.set("z", String(Math.round(cycle.z[s.zi])));
   if (s.cell >= 0) {
     p.set("lat", cycle.lat[Math.floor(s.cell / cycle.nlon)].toFixed(2));

@@ -9,6 +9,7 @@ import { pointer, select, type Selection } from "d3-selection";
 import { utcFormat } from "d3-time-format";
 import type { Colormap } from "./colormap";
 import { type Dataset, edges, nearestIndex } from "./data";
+import { tickFormat as valueTicks } from "./format";
 
 type Svg = Selection<SVGSVGElement, unknown, null, undefined>;
 type G = Selection<SVGGElement, unknown, null, undefined>;
@@ -77,7 +78,7 @@ export class ProfileView {
 
     g.append("g").attr("class", "grid").call(axisLeft(y).tickValues(yTicks).tickSize(-pw).tickFormat(() => ""));
     g.append("g").attr("class", "grid").attr("transform", `translate(0,${ph})`).call(axisBottom(x).ticks(5).tickSize(-ph).tickFormat(() => "")); // fmt: skip
-    g.append("g").attr("class", "axis").attr("transform", `translate(0,${ph})`).call(axisBottom(x).ticks(Math.max(3, Math.floor(pw / 70)))); // fmt: skip
+    g.append("g").attr("class", "axis").attr("transform", `translate(0,${ph})`).call(axisBottom(x).ticks(Math.max(3, Math.floor(pw / 70))).tickFormat(valueTicks(x, Math.max(3, Math.floor(pw / 70))))); // fmt: skip
     g.append("g").attr("class", "axis").call(axisLeft(y).tickValues(yTicks).tickFormat((d) => formatHeight(+d)));
     g.append("text").attr("class", "axis-label").attr("x", pw / 2).attr("y", ph + 32).attr("text-anchor", "middle").text(o.xLabel); // fmt: skip
 
@@ -157,7 +158,8 @@ export class TimeHeightView {
 
   /** `stat`, `band`: statistic shown and the two statistics of the band around it in the strips (climatology).
    * `stepLabel`: hover text of a step. `months`: one tick per step, labelled with the month. `from`: first step shown.
-   * `showZ` false: no line at the selected height (a column-integrated variable is on the map). */
+   * `showZ` false: no line at the selected height (a column-integrated variable is on the map). `tf`: values as shown
+   * (of the variable and of each column; e.g. 10^value for log₁₀ data shown linearly), `range` and `fmt` of those. */
   draw(o: {
     cycle: Dataset;
     name: string;
@@ -168,7 +170,8 @@ export class TimeHeightView {
     cmap: Colormap;
     range: [number, number];
     fmt: (v: number) => string;
-    columns: { name: string; label: string; fmt: (v: number) => string }[];
+    columns: { name: string; label: string; fmt: (v: number) => string; tf?: (v: number) => number }[];
+    tf?: (v: number) => number;
     stepLabel: (step: number) => string;
     stat?: string;
     band?: [string, string];
@@ -177,6 +180,7 @@ export class TimeHeightView {
     showZ?: boolean;
   }) {
     const { cycle, name, cell, stat } = o;
+    const tf = o.tf ?? ((v: number) => v);
     const from = o.from ?? 0;
     const shown = (l: number) => l >= from;
     const width = this.el.clientWidth;
@@ -211,7 +215,7 @@ export class TimeHeightView {
         if (Number.isNaN(p[k])) continue;
         const y0 = y(Math.max(zE[k], y.domain()[0]));
         const y1 = y(Math.min(zE[k + 1], y.domain()[1]));
-        ctx.fillStyle = o.cmap.color(p[k], lo, hi);
+        ctx.fillStyle = o.cmap.color(tf(p[k]), lo, hi);
         ctx.fillRect(x0, y1, x1 - x0 + 0.5, y0 - y1 + 0.5);
       }
     }
@@ -230,12 +234,13 @@ export class TimeHeightView {
     o.columns.forEach((c, s) => {
       const top = ph + this.gap + s * (this.stripH + this.gap);
       const gs = g.append("g").attr("transform", `translate(0,${top})`);
-      const v = cycle.series(c.name, cell, stat);
-      const band = o.band?.map((b) => cycle.series(c.name, cell, b));
+      const series = (s?: string) => (c.tf ? cycle.series(c.name, cell, s).map(c.tf) : cycle.series(c.name, cell, s));
+      const v = series(stat);
+      const band = o.band?.map(series);
       const finite = [v, ...(band ?? [])].flatMap((a) => [...a.subarray(from)]).filter((a) => !Number.isNaN(a));
       const ys = scaleLinear().domain(finite.length ? [Math.min(...finite), Math.max(...finite)] : [0, 1]).range([this.stripH, 0]).nice(3); // fmt: skip
       gs.append("g").attr("class", "grid").call(axisLeft(ys).ticks(3).tickSize(-pw).tickFormat(() => ""));
-      gs.append("g").attr("class", "axis").call(axisLeft(ys).ticks(3));
+      gs.append("g").attr("class", "axis").call(axisLeft(ys).ticks(3).tickFormat(valueTicks(ys, 3)));
       const last = s === nStrips - 1;
       gs.append("g").attr("class", "axis").attr("transform", `translate(0,${this.stripH})`)
         .call(axisBottom(x).tickValues(xTicks).tickFormat((d) => (last ? tickFormat(d as Date) : ""))); // fmt: skip
@@ -287,7 +292,7 @@ export class TimeHeightView {
       const t = o.stepLabel(lead);
       if (zi === undefined) return this.onHover(t);
       const p = cycle.profile(name, lead, cell, stat);
-      this.onHover(`${t}, ${formatHeight(cycle.z[zi])}: ${p && !Number.isNaN(p[zi]) ? o.fmt(p[zi]) : "–"}`);
+      this.onHover(`${t}, ${formatHeight(cycle.z[zi])}: ${p && !Number.isNaN(p[zi]) ? o.fmt(tf(p[zi])) : "–"}`);
     });
     hit.on("pointerleave", () => this.onHover(""));
   }
@@ -302,7 +307,7 @@ export class TimeHeightView {
 }
 
 /** One box: whiskers p5 to p95, box p25 to p75, median line, mean dot. */
-export type BoxStats = Record<"p5" | "p25" | "median" | "p75" | "p95" | "mean", Float32Array>;
+export type BoxStats = Record<"p5" | "p25" | "median" | "p75" | "p95" | "mean", Float32Array> & { lmean?: Float32Array };
 
 /** Densities of a violin per hour (scaled to a maximum of 1) at the values `x`. */
 export interface Violins {
@@ -355,7 +360,7 @@ export class DiurnalView {
       const x = scaleBand<number>().domain(hours).range([0, pw]).padding(violins ? 0.1 : 0.35);
       const y = scaleLinear().domain(finite.length ? [Math.min(...finite), Math.max(...finite)] : [0, 1]).range([ph, 0]).nice(4); // fmt: skip
       g.append("g").attr("class", "grid").call(axisLeft(y).ticks(4).tickSize(-pw).tickFormat(() => ""));
-      g.append("g").attr("class", "axis").call(axisLeft(y).ticks(4));
+      g.append("g").attr("class", "axis").call(axisLeft(y).ticks(4).tickFormat(valueTicks(y, 4)));
       g.append("g").attr("class", "axis").attr("transform", `translate(0,${ph})`)
         .call(axisBottom(x).tickFormat((h) => format("02d")(h))); // fmt: skip
       g.append("text").attr("class", "axis-label").attr("x", pw / 2).attr("y", ph + 30).attr("text-anchor", "middle").text("Hour (UTC)"); // fmt: skip

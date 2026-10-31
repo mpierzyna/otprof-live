@@ -23,8 +23,11 @@ export interface VarMeta extends Encoding {
   display_ranges?: Record<string, [number, number]>; // per statistic
   display_ranges_z?: Record<string, [number, number][]>;
   diurnal?: { dims: string[]; stats: string[]; file: string }; // [month][hour][stat][lat][lon]
-  violin?: Encoding & { dims: string[]; x: number[]; files: string[] }; // densities per month [lat][lon][hour][x]
+  violin?: Violin; // densities per month [lat][lon][hour][x]
+  violin_linear?: Violin; // the same of the linear values (10^value) of a log10 variable
 }
+
+type Violin = Encoding & { dims: string[]; x: number[]; files: string[] };
 
 interface GridMeta {
   lat: number[];
@@ -277,7 +280,7 @@ export class Cycle extends Dataset {
 export class Climatology extends Dataset {
   readonly meta: ClimMeta;
   private diurnalArr = new Map<string, Float32Array>();
-  private violinArr = new Map<string, Promise<Float32Array>>(); // "<name>/<step>"
+  private violinArr = new Map<string, Promise<Float32Array>>(); // "<name>/<kind>/<step>"
   private violinDone = new Map<string, Float32Array>();
 
   private constructor(meta: ClimMeta, base: string) {
@@ -325,13 +328,20 @@ export class Climatology extends Dataset {
     return Object.keys(this.variables).filter((n) => this.variables[n].violin);
   }
 
-  /** The violin densities of a month, all variables (loaded on first use, one file per variable and month). */
-  loadViolins(step: number): Promise<void> {
+  /** The violins of a variable: of its linear values if `linear` and it has those, else of its values. */
+  private violinKind(name: string, linear: boolean): "violin" | "violin_linear" {
+    return linear && this.variables[name].violin_linear ? "violin_linear" : "violin";
+  }
+
+  /** The violin densities of a month, all variables (loaded on first use, one file per variable and month); `linear`:
+   * those of the linear values where a variable has them. */
+  loadViolins(step: number, linear: (name: string) => boolean): Promise<void> {
     return Promise.all(
       this.violinVars.map((name) => {
-        const key = `${name}/${step}`;
+        const kind = this.violinKind(name, linear(name));
+        const key = `${name}/${kind}/${step}`;
         if (!this.violinArr.has(key)) {
-          const v = this.variables[name].violin!;
+          const v = this.variables[name][kind]!;
           const p = this.fetchBin(v.files[step]).then((b) => decode(b, v));
           this.violinArr.set(key, p.then((a) => (this.violinDone.set(key, a), a)));
           p.catch(() => this.violinArr.delete(key)); // retried next time
@@ -342,14 +352,16 @@ export class Climatology extends Dataset {
   }
 
   /** Densities (scaled to a maximum of 1) at the bin centres `x`, per hour of `meta.hours`, at a month and cell;
-   * undefined until `loadViolins(step)` is done. */
-  violin(name: string, step: number, cell: number): { x: number[]; density: Float32Array[] } | undefined {
-    const arr = this.violinDone.get(`${name}/${step}`);
-    const x = this.variables[name].violin?.x;
+   * undefined until `loadViolins(step)` is done. `linear`: those of the linear values if the variable has them
+   * (`linear` in the result), else of its values. */
+  violin(name: string, step: number, cell: number, linear = false): { x: number[]; density: Float32Array[]; linear: boolean } | undefined { // fmt: skip
+    const kind = this.violinKind(name, linear);
+    const arr = this.violinDone.get(`${name}/${kind}/${step}`);
+    const x = this.variables[name][kind]?.x;
     if (!arr || !x) return undefined;
     const nh = this.meta.hours.length;
     const density = this.meta.hours.map((_, h) => arr.slice((cell * nh + h) * x.length, (cell * nh + h + 1) * x.length));
-    return { x, density };
+    return { x, density, linear: kind === "violin_linear" };
   }
 
   /** Statistics a variable has. */

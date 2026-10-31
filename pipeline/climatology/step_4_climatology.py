@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Climatology of the predicted Cn2 profiles, Fried parameter and scintillation index of step 3 → `4_climatology/`.
 
-Variables: `lcn2` (log10 Cn2 [m-2/3], per height `z_agl`), `r0` (Fried parameter [cm]), `si2` (scintillation index,
-plane wave) and `lsi2` (log10 `si2`), r0 and si2 at 1550 nm. Statistics (dim `stat`): `n` (number of time steps),
+Variables: `lcn2` (log10 Cn2 [m-2/3], per height `z_agl`), `cn2` (linear Cn2, 10^`lcn2`), `r0` (Fried parameter [cm]),
+`si2` (scintillation index, plane wave) and `lsi2` (log10 `si2`), r0 and si2 at 1550 nm: the statistics of the
+log10 variables and of their linear values each computed from the samples. The percentiles agree (10^p(log10 x) =
+p(x), up to the interpolation between neighbouring samples); the moments (mean, std) differ. Statistics (dim `stat`): `n` (number of time steps),
 `mean`, `std`, `min`, the percentiles `p0.01`, `p0.05`, `p0.1`, `p0.5`, `p2.5`, `p5`, `p25`, `median`, `p75`, `p95`,
 `p97.5`, `p99.5`, `p99.9`, `p99.95`, `p99.99` (the low end mirrors the high end), `max` and `iqr` (p75 - p25). Also
 `lcn2_linear_mean`: log10 of the mean of the linear Cn2, the value integrated optical quantities depend on (the `mean`
@@ -16,8 +18,9 @@ Groupings of the time steps: `all`, `season` (DJF, MAM, JJA, SON), `month` (cale
 - `grid_month_hour.nc`: diurnal cycle of `r0`, `si2`, `lsi2` per grid point and calendar month, for box plots:
   dims (month, hour, stat, lat, lon), `stat`: `n`, `mean`, `p5`, `p25`, `median`, `p75`, `p95`, `iqr` (box p25 .. p75,
   whiskers p5 .. p95)
-- `grid_month_hour_violin.nc`: the same diurnal cycle of `r0` and `lsi2` as distributions, for violin plots: histograms
-  in `VIOLIN_BINS` bins (centres `<var>_x`) over the range of the variable in all data, smoothed with a Gaussian of
+- `grid_month_hour_violin.nc`: the same diurnal cycle of `r0`, `lsi2` and `si2` as distributions, for violin plots:
+  histograms in the bins of `VIOLIN_VARS` (centres `<var>_x`) over the range of the variable in all data (si2: up to
+  its 99.9th percentile, the far tail left out), smoothed with a Gaussian of
   Silverman's bandwidth per month, hour and grid point (a binned kernel density estimate) and cut to its range, scaled to a maximum of 1 per violin (NaN
   without data); dims (month, hour, <var>_x, lat, lon)
 
@@ -39,10 +42,13 @@ BOX_PERCENTILES = (5.0, 25.0, 50.0, 75.0, 95.0)  # box plots of the diurnal cycl
 STATS = ["n", "mean", "std", "min", *(f"p{p:g}" if p != 50 else "median" for p in PERCENTILES), "max", "iqr"]
 BOX_STATS = ["n", "mean", *(f"p{p:g}" if p != 50 else "median" for p in BOX_PERCENTILES), "iqr"]
 SEASONS = ["DJF", "MAM", "JJA", "SON"]
-VIOLIN_VARS = ["r0", "lsi2"]  # variables of the violin plots of the diurnal cycle
-VIOLIN_BINS = 100  # histogram bins of their densities, over the range of the variable
+# Variables of the violin plots of the diurnal cycle: histogram bins of their densities and the upper end of the bins
+# as a percentile of all data (100: the maximum). Linear si2 is skewed: finer bins, and its far tail left out.
+VIOLIN_VARS = {"r0": (100, 100.0), "lsi2": (100, 100.0), "si2": (400, 99.9)}
+HEIGHT_VARS = ("lcn2", "cn2", "lcn2_linear_mean")  # variables per height (bottom_top)
 ATTRS = {
     "lcn2": {"long_name": "log10 of the refractive index structure parameter Cn2", "units": "log10(m-2/3)"},
+    "cn2": {"long_name": "refractive index structure parameter Cn2", "units": "m-2/3"},
     "r0": {"long_name": "Fried parameter, 1550 nm", "units": "cm"},
     "si2": {"long_name": "scintillation index, plane wave, 1550 nm", "units": "1"},
     "lsi2": {"long_name": "log10 of the scintillation index, plane wave, 1550 nm", "units": "1"},
@@ -78,25 +84,35 @@ def compute_stats(a: np.ndarray, box: bool = False) -> np.ndarray:
     )
 
 
+def compute_stats_linear(a: np.ndarray) -> np.ndarray:
+    """`compute_stats` of 10**`a` (Cn2 from lcn2)."""
+    return compute_stats(10.0**a)
+
+
 def compute_density(a: np.ndarray, x: np.ndarray) -> np.ndarray:
     """Smoothed histogram of each column of `a` (samples, columns) on the uniform bin centres `x`: the counts per bin,
     smoothed with a Gaussian of Silverman's bandwidth per column (a binned kernel density estimate), cut to the range of
     the column (no density where nothing was observed, e.g. r0 < 0), scaled to a maximum of 1 per column:
-    (len(x), columns). NaN if `a` is empty."""
+    (len(x), columns). Samples beyond the bins are left out (the bandwidth still uses all). NaN if `a` is empty."""
     n, n_cols = a.shape
     if not n:
         return np.full((len(x), n_cols), np.nan, dtype=np.float32)
     dx = x[1] - x[0]
+    inside = (a >= x[0] - dx / 2) & (a <= x[-1] + dx / 2)
     bins = np.clip(np.round((a - x[0]) / dx).astype(int), 0, len(x) - 1)
-    hist = np.bincount((bins * n_cols + np.arange(n_cols)).ravel(), minlength=len(x) * n_cols).reshape(len(x), n_cols)
+    hist = np.bincount(
+        (bins * n_cols + np.arange(n_cols)).ravel(), weights=inside.ravel(), minlength=len(x) * n_cols
+    ).reshape(len(x), n_cols)
     q25, q75 = np.percentile(a, [25, 75], axis=0)
     spread = np.minimum(a.std(axis=0), (q75 - q25) / 1.34)
     spread = np.where(spread > 0, spread, a.std(axis=0))  # IQR 0: the std
     bw = np.maximum(0.9 * spread * n ** -0.2, dx)  # at least one bin (also for constant columns)
-    kernel = np.exp(-0.5 * ((x[:, None, None] - x[None, :, None]) / bw) ** 2)  # (x, bin, column)
+    kernel = np.exp(-0.5 * ((x[:, None, None] - x[None, :, None]) / bw.astype(np.float32)) ** 2)  # (x, bin, column)
     density = np.einsum("ijc,jc->ic", kernel, hist)
-    density[(x[:, None] < x[bins.min(axis=0)]) | (x[:, None] > x[bins.max(axis=0)])] = 0
-    return (density / density.max(axis=0)).astype(np.float32)
+    k = np.arange(len(x))[:, None]
+    density[(k < np.where(inside, bins, len(x)).min(axis=0)) | (k > np.where(inside, bins, -1).max(axis=0))] = 0
+    peak = density.max(axis=0)
+    return (density / np.where(peak > 0, peak, np.nan)).astype(np.float32)
 
 
 def compute_linear_mean(lcn2: np.ndarray) -> np.ndarray:
@@ -121,7 +137,7 @@ def to_dataset(arrays: dict[str, np.ndarray], grouping: str, groups: dict, coord
     The group dim is dropped for `all`."""
     ds = xr.Dataset()
     for name, a in arrays.items():
-        has_height = name.startswith("lcn2")
+        has_height = name in HEIGHT_VARS
         names = (grouping, *(() if name == "lcn2_linear_mean" else ("stat",)), *dims, *(("bottom_top",) * has_height))
         ds[name] = xr.DataArray(a, dims=names, attrs=ATTRS[name])
     ds = ds.assign_coords({grouping: list(groups[grouping]), "stat": STATS, **coords})
@@ -146,10 +162,12 @@ if __name__ == "__main__":
         values = {v: band[v].values for v in ["lcn2", "r0", "lsi2"]}
         assert all(np.isfinite(a).all() for a in values.values()), "NaN or inf in the predictions"
         values["si2"] = 10.0 ** values["lsi2"]
+        values["cn2"] = 10.0 ** values["lcn2"]
         bands.append(compute_all(values, groups))
+        del band, values
     # bands along lat: (group, [stat,] lat, lon[, bottom_top]), lat the axis -3 (lcn2) or -2 (per profile)
     grid = {
-        g: {v: np.concatenate([b[g][v] for b in bands], axis=-3 if v.startswith("lcn2") else -2) for v in bands[0][g]}
+        g: {v: np.concatenate([b[g][v] for b in bands], axis=-3 if v in HEIGHT_VARS else -2) for v in bands[0][g]}
         for g in groups
     }
 
@@ -167,13 +185,13 @@ if __name__ == "__main__":
         lcn2 = lcn2.values.reshape(len(times), n_lat * n_lon, -1)
         blocks.append(
             {
-                g: [np.stack([f(lcn2[m].reshape(-1, lcn2.shape[-1])) for m in masks.values()]) for f in (compute_stats, compute_linear_mean)]
+                g: [np.stack([f(lcn2[m].reshape(-1, lcn2.shape[-1])) for m in masks.values()]) for f in (compute_stats, compute_stats_linear, compute_linear_mean)]
                 for g, masks in groups.items()
             }
         )  # fmt: skip
     for g in groups:
-        domain[g]["lcn2"] = np.concatenate([b[g][0] for b in blocks], axis=-1)
-        domain[g]["lcn2_linear_mean"] = np.concatenate([b[g][1] for b in blocks], axis=-1)
+        for k, v in enumerate(["lcn2", "cn2", "lcn2_linear_mean"]):
+            domain[g][v] = np.concatenate([b[g][k] for b in blocks], axis=-1)
 
     # Diurnal cycle per grid point and calendar month, for box plots
     hours = sorted(set(times.hour))
@@ -189,9 +207,9 @@ if __name__ == "__main__":
 
     # The same as distributions, for violin plots
     violin = xr.Dataset(coords={"month": range(1, 13), "hour": hours, "lat": ds["lat"], "lon": ds["lon"]})
-    for v in tqdm(VIOLIN_VARS, desc="violin", unit="var", dynamic_ncols=True):
+    for v, (n_bins, top) in tqdm(VIOLIN_VARS.items(), desc="violin", unit="var", dynamic_ncols=True):
         a = pooled[v]
-        x = np.linspace(a.min(), a.max(), VIOLIN_BINS)  # bin centres
+        x = np.linspace(a.min(), np.percentile(a, top), n_bins)  # bin centres
         dens = [
             [compute_density(a[(times.month == m) & (times.hour == h)], x).reshape(-1, n_lat, n_lon) for h in hours]
             for m in range(1, 13)
