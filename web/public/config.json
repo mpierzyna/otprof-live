@@ -24,6 +24,7 @@
       "label": "r₀",
       "units": "cm",
       "colormap": "viridis",
+      "reverse": true,
       "format": ".1f"
     },
     "lsi2": {

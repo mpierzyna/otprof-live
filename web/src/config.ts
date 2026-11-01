@@ -4,7 +4,7 @@ export interface VarConfig {
   label?: string;
   units?: string;
   colormap?: string; // d3-scale-chromatic name: viridis, magma, inferno, plasma, cividis, turbo, ...
-  reverse?: boolean;
+  reverse?: boolean; // convention: bright colours for strong turbulence (high Cn², σᵢ²; small r0)
   range?: [number, number]; // colour range, overrides the data's display_range
   format?: string; // d3-format specifier for values
   /** The variable is stored as log₁₀: shown as 10^value (label, units and format of that) when log₁₀ is switched off */
