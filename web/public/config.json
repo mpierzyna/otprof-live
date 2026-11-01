@@ -1,9 +1,5 @@
 {
-  "title": "OTProf live",
-  "subtitle": "Optical turbulence forecast · SQF-H on GFS",
   "dataUrl": "data/",
-  "notes": "notes.md",
-  "disclaimer": "disclaimer.md",
   "basemapUrl": "basemap/",
   "mapPaddingDeg": 1.0,
   "playIntervalMs": 400,
@@ -33,6 +29,7 @@
       "colormap": "YlGnBu",
       "reverse": true,
       "format": ".2f",
+      "log": false,
       "linear": {
         "label": "σᵢ²",
         "units": "1"

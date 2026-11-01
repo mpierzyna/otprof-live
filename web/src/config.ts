@@ -9,33 +9,28 @@ export interface VarConfig {
   format?: string; // d3-format specifier for values
   /** The variable is stored as log₁₀: shown as 10^value (label, units and format of that) when log₁₀ is switched off */
   linear?: { label?: string; units?: string; format?: string };
+  /** With `linear`: shown as log₁₀ (true, the default) or linearly at the start; the log₁₀ switch is per variable */
+  log?: boolean;
 }
 
 export interface Config {
-  title: string;
-  subtitle?: string;
   dataUrl: string;
-  notes?: string;
-  disclaimer?: string; // markdown file shown in a red box above the panels
   basemapUrl: string;
   mapPaddingDeg: number;
   playIntervalMs: number;
   heightScale: "log" | "linear";
   colourPerHeight: boolean;
-  logValues: boolean; // variables stored as log₁₀ shown as log₁₀ (true) or linearly
   variables: Record<string, VarConfig>;
   defaults: { variable?: string; z?: number; lat?: number; lon?: number };
 }
 
 const DEFAULTS: Config = {
-  title: "OTProf live",
   dataUrl: "data/",
   basemapUrl: "basemap/",
   mapPaddingDeg: 1,
   playIntervalMs: 400,
   heightScale: "log",
   colourPerHeight: true,
-  logValues: true,
   variables: {},
   defaults: {},
 };

@@ -1,5 +1,6 @@
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
+import { marked, type Token } from "marked";
 import { type Connect, defineConfig, type Plugin } from "vite";
 
 // Development data (default: the pipelines' web data, pipeline/data/webui) served at /data/ by the dev and preview
@@ -19,6 +20,38 @@ function devData(): Plugin {
   return { name: "dev-data", configureServer: serve, configurePreviewServer: serve };
 }
 
+// Texts of the app (content/*.md, see content/README.md) rendered into index.html at build time:
+// <!--content:NAME--> the markdown of content/NAME.md, <!--content:NAME:inline--> as inline markdown (title),
+// <!--content:NAME:text--> as plain text (<title>), <!--content:NAME:heading--> its first heading (inline) and
+// <!--content:NAME:body--> the rest. Links not starting with "#" (those set the view) open in a new tab.
+const CONTENT = resolve(__dirname, "content");
+
+function content(): Plugin {
+  const external = (html: string) => html.replace(/<a href="(?!#)/g, '<a target="_blank" rel="noopener noreferrer" href="');
+  const parse = (tokens: Token[]) => external(marked.parser(tokens));
+  const inline = (md: string) => external(marked.parseInline(md.trim(), { async: false }));
+  const render = (name: string, part = "") => {
+    const md = readFileSync(resolve(CONTENT, `${name}.md`), "utf-8");
+    const tokens = marked.lexer(md);
+    const k = tokens.findIndex((t) => t.type === "heading");
+    if (part === "inline") return inline(md);
+    if (part === "text") return inline(md).replace(/<[^>]*>/g, "");
+    if (part === "heading") return k < 0 ? "" : inline((tokens[k] as Token & { text: string }).text);
+    if (part === "body") return parse(tokens.filter((_, i) => i !== k));
+    if (part) throw new Error(`content:${name}:${part}: unknown part`);
+    return parse(tokens);
+  };
+  return {
+    name: "content",
+    transformIndexHtml: (html) =>
+      html.replace(/<!--content:([\w-]+)(?::(\w+))?-->/g, (_, name: string, part?: string) => render(name, part)),
+    configureServer(server) {
+      server.watcher.add(CONTENT);
+      server.watcher.on("change", (file) => file.startsWith(CONTENT) && server.ws.send({ type: "full-reload" }));
+    },
+  };
+}
+
 // Relative asset paths: the built app (dist/) works from any directory of the web server.
 // Dev server on another interface (e.g. Tailscale):  npm run dev -- --host <ip>
 export default defineConfig({
@@ -26,5 +59,5 @@ export default defineConfig({
   build: { chunkSizeWarningLimit: 1500 },
   server: { port: 5173, strictPort: true },
   preview: { port: 4173, strictPort: true },
-  plugins: [devData()],
+  plugins: [devData(), content()],
 });

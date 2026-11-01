@@ -1,6 +1,6 @@
 #!/bin/bash
-# Step 4: mirror the web app's data root (WEBUI_DATA: cycles of step 3, climatology of ../climatology step 5) to the
-# remote with rclone. Independent of the run: a failed upload is repeated with the next one.
+# Step 4: mirror the web app's data root (WEBUI_DATA: cycles of step 3 with their NetCDF for download, climatology of
+# ../climatology step 5) to the remote with rclone. Independent of the run: a failed upload is repeated with the next one.
 #
 #   bash step_4_upload.sh            upload
 #   bash step_4_upload.sh --config   set up the remote interactively (rclone config with the local config file)

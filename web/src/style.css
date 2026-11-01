@@ -509,7 +509,8 @@ input {
   border-radius: 0;
   background: none;
 }
-.field span {
+.field > span,
+.field > label {
   color: var(--text-2);
   font-size: 13px;
 }
@@ -556,6 +557,158 @@ option {
   width: 18px;
   height: 18px;
   fill: currentColor;
+}
+
+/* The forecast run: select with the download attached, then "Newer run" in the same row; phones: the label above,
+   and "Newer run" as its icon */
+.run-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+@media (max-width: 600px) {
+  .run-field {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+@media (max-width: 480px) {
+  .newer-button .newer-text {
+    display: none;
+  }
+  .newer-button {
+    padding: 0 7px;
+  }
+}
+
+/* Download of the forecast run: attached to the run's select, as one control */
+.joined {
+  display: inline-flex;
+}
+.joined:has(.download-button:not([hidden])) select {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.download-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--border-strong);
+  border-left: 0;
+  border-radius: 0 var(--radius-s) var(--radius-s) 0;
+  background: var(--panel);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.download-button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.download-button svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+/* Dialog (download): the disclaimer as a callout, then cancel or download */
+.dialog {
+  width: min(480px, calc(100% - 32px));
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.dialog::backdrop {
+  background: rgba(15, 15, 15, 0.45);
+}
+.dialog h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+.dialog-what,
+.dialog-accept {
+  margin: 0 0 12px;
+}
+.dialog-accept p {
+  margin: 0;
+}
+.dialog-accept p + p {
+  margin-top: 6px;
+}
+.dialog-accept a {
+  color: var(--accent);
+}
+.dialog-what,
+.dialog-accept p {
+  color: var(--text-2);
+  font-size: 13px;
+}
+.dialog-warning {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: var(--callout-bg);
+  color: var(--callout-text);
+  font-size: 13px;
+}
+.dialog-warning .banner-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  fill: var(--callout-icon);
+}
+.dialog-warning .markdown > :first-child {
+  margin-top: 0;
+}
+.dialog-warning .markdown > :last-child {
+  margin-bottom: 0;
+}
+.dialog-warning .markdown h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0;
+}
+.secondary-button,
+.primary-button {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--radius-s);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+.secondary-button {
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+}
+.secondary-button:hover {
+  background: var(--hover);
+}
+.primary-button {
+  border: 0;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.primary-button:hover {
+  filter: brightness(1.08);
 }
 
 /* Play button and speed */
@@ -843,10 +996,14 @@ input[type="range"]:disabled {
   background: var(--envelope);
 }
 .legend i.whisker {
-  width: 0;
+  /* an I: line with caps */
+  width: 7px;
   height: 12px;
-  border-top: 0;
-  border-left: 1.5px solid var(--accent);
+  border: 0;
+  background:
+    linear-gradient(var(--accent), var(--accent)) center / 1.5px 100% no-repeat,
+    linear-gradient(var(--accent), var(--accent)) top / 100% 1.5px no-repeat,
+    linear-gradient(var(--accent), var(--accent)) bottom / 100% 1.5px no-repeat;
 }
 .legend i.dot {
   width: 6px;

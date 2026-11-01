@@ -47,6 +47,7 @@ export interface CycleMeta extends GridMeta {
   format: string;
   cycle: string;
   lead_hours: number[];
+  download?: { file: string; bytes: number }; // the forecast as a file for download (NetCDF)
 }
 
 export interface ClimMeta extends GridMeta {

@@ -30,9 +30,9 @@ TIME_ENCODING = {"units": "hours since 1970-01-01", "dtype": "int64"}
 
 
 def to_netcdf(ds: xr.Dataset, path, **kwargs):
-    """`ds.to_netcdf` with all datetime variables encoded with `TIME_ENCODING`."""
+    """`ds.to_netcdf` with all datetime variables encoded with `TIME_ENCODING` (and `encoding` given)."""
     encoding = {v: TIME_ENCODING for v in ds.variables if np.issubdtype(ds[v].dtype, np.datetime64)}
-    return ds.to_netcdf(path, encoding=encoding, **kwargs)
+    return ds.to_netcdf(path, encoding=encoding | kwargs.pop("encoding", {}), **kwargs)
 
 
 def to_netcdf_atomic(ds: xr.Dataset, path, **kwargs):

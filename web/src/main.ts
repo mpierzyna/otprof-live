@@ -9,7 +9,7 @@ import { Climatology, Cycle, type Dataset, loadIndex, nearestIndex } from "./dat
 import { MapView } from "./map";
 import { renderNotes } from "./notes";
 import { type BoxStats, formatHeight, ProfileView, type Steps, TimeHeightView, type Violins } from "./plots";
-import { type HashState, type Mode, parseHash, resolve, type State, Store, toHash } from "./state";
+import { type HashState, type Mode, parseHash, parseLog, resolve, type State, Store, toHash } from "./state";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const fmtTime = utcFormat("%a %d %b %Y %H:%M UTC");
@@ -132,15 +132,10 @@ function setupTheme() {
   apply();
 }
 
-/** The disclaimer as a collapsible banner: its first heading is the summary; collapsed stays collapsed. */
-async function setupDisclaimer(url: string) {
+/** The disclaimer (content/disclaimer.md, in the page) as a collapsible banner; collapsed stays collapsed. */
+function setupDisclaimer() {
   const el = $<HTMLDetailsElement>("disclaimer");
-  if (!(await renderNotes($("disclaimer-text"), [url]))) return;
-  const heading = $("disclaimer-text").querySelector("h1, h2, h3, h4");
-  if (heading) {
-    $("disclaimer-title").textContent = heading.textContent;
-    heading.remove();
-  }
+  if (!el.textContent?.trim()) return;
   try {
     el.open = localStorage.getItem(DISCLAIMER_KEY) !== "closed";
   } catch {
@@ -159,10 +154,7 @@ async function setupDisclaimer(url: string) {
 async function main() {
   setupTheme();
   const config = await loadConfig();
-  document.title = config.title;
-  $("title").textContent = config.title;
-  $("subtitle").textContent = config.subtitle ?? "";
-  if (config.disclaimer) void setupDisclaimer(new URL(config.disclaimer, location.href).href);
+  setupDisclaimer();
   let index = await loadIndex(config.dataUrl);
   const latestCycle = () => index.latest ?? index.cycles[0];
   const climUrl = index.climatology ? new URL(index.climatology, config.dataUrl).href : undefined;
@@ -184,7 +176,12 @@ async function main() {
   const vc = (name: string) => config.variables[name] ?? {};
   /** A variable stored as log₁₀ (config `linear`) shown as 10^value: the log₁₀ switch is off. Values, ranges and
    * statistics are converted only for showing them (`shown`, `shownArr`, `shownRange`). */
-  const linear = (name: string) => !st().logValues && !!vc(name).linear;
+  const linear = (name: string) => !!vc(name).linear && st().logValues[name] === false;
+  /** The log₁₀ switches at the start (config `log`), and as asked for by a hash value `log` */
+  const logDefault = Object.fromEntries(
+    Object.keys(config.variables).filter((n) => vc(n).linear).map((n) => [n, vc(n).log ?? true]),
+  );
+  const logOf = (h: HashState) => (h.log === undefined ? undefined : parseLog(h.log, Object.keys(logDefault)));
   const shown = (name: string, v: number) => (linear(name) ? 10 ** v : v);
   const shownArr = <T extends Float32Array | undefined>(name: string, a: T): T =>
     a && linear(name) ? (a.map((v) => 10 ** v) as T) : a;
@@ -286,7 +283,7 @@ async function main() {
     diurnalKind: "box",
     heightScale: config.heightScale,
     colourPerHeight: config.colourPerHeight,
-    logValues: hash.logValues ?? config.logValues,
+    logValues: logOf(hash) ?? logDefault,
   });
   const st = () => store.state;
 
@@ -341,6 +338,9 @@ async function main() {
   const newer = $<HTMLButtonElement>("newer");
   const cycleSelect = $<HTMLSelectElement>("cycle-select");
   const statGroup = $("stat");
+  const download = $<HTMLButtonElement>("download");
+  const downloadDialog = $<HTMLDialogElement>("download-dialog");
+  const downloadLink = $<HTMLAnchorElement>("download-link");
   // Touch: the thumb jumps on touch down; restore it when the gesture becomes a page scroll (pointercancel)
   for (const input of [timeInput, heightInput]) {
     let before: string | null = null;
@@ -361,11 +361,20 @@ async function main() {
   logHeight.addEventListener("change", () => store.set({ heightScale: logHeight.checked ? "log" : "linear" }));
   colourZ.checked = st().colourPerHeight;
   colourZ.addEventListener("change", () => store.set({ colourPerHeight: colourZ.checked }));
-  logValues.addEventListener("change", () => store.set({ logValues: logValues.checked }));
+  logValues.addEventListener("change", () =>
+    store.set({ logValues: { ...st().logValues, [st().variable]: logValues.checked } }),
+  );
   speed.addEventListener("click", () => {
     speedIndex = (speedIndex + 1) % SPEEDS.length;
     speed.textContent = SPEEDS[speedIndex][1];
   });
+  // Download of the forecast run shown, after the disclaimer (the dialog)
+  download.addEventListener("click", () => {
+    store.set({ playing: false });
+    downloadDialog.showModal();
+  });
+  downloadDialog.addEventListener("click", (e) => e.target === downloadDialog && downloadDialog.close()); // backdrop
+  downloadLink.addEventListener("click", () => downloadDialog.close());
   const fillCycles = () => cycleSelect.replaceChildren(...index.cycles.map((id) => new Option(fmtCycle(id), id)));
   fillCycles();
   cycleSelect.addEventListener("change", () => switchCycle(cycleSelect.value, physical()));
@@ -409,6 +418,16 @@ async function main() {
     timeInput.max = String(data.times.length - 1);
     heightInput.max = String(Math.max(0, data.nz - 1));
     if (data instanceof Cycle) cycleSelect.value = data.id;
+    const file = data instanceof Cycle ? data.meta.download : undefined;
+    download.hidden = !file;
+    if (data instanceof Cycle && file) {
+      const size = `${(file.bytes / 1e6).toFixed(1)} MB`;
+      $("download-label").textContent = `nc (${size})`;
+      downloadLink.href = new URL(file.file, data.base).href;
+      downloadLink.download = file.file;
+      downloadLink.textContent = `Download (${size})`;
+      $("download-what").textContent = `Forecast run ${fmtCycle(data.id)} as NetCDF: ${file.file}, ${size}.`;
+    }
     $("cycle-group").hidden = !!c;
     $("stat-group").hidden = !c;
     $("diurnal-panel").hidden = !c;
@@ -449,9 +468,9 @@ async function main() {
       dd.textContent = v;
       info.append(dt, dd);
     }
-    const notes = [...(config.notes ? [new URL(config.notes, location.href).href] : [])];
-    if (data.notes) notes.push(new URL(data.notes, data.base).href);
-    void renderNotes($("notes"), notes);
+    // The texts of the page (content/) and the notes of the data, if any
+    $("notes-clim").hidden = !climOf(data);
+    void renderNotes($("notes-data"), data.notes ? [new URL(data.notes, data.base).href] : []);
     if (hooked.has(data)) return;
     hooked.add(data);
     const d = data;
@@ -706,11 +725,11 @@ async function main() {
       b.textContent = label(b.dataset.name!);
     }
     // log₁₀ or linear: for the variables stored as log₁₀ (the others keep the switch, disabled)
-    logValues.checked = s.logValues;
     logValues.disabled = !vc(s.variable).linear;
+    logValues.checked = !logValues.disabled && s.logValues[s.variable] !== false;
     $("log-values-group").title = logValues.disabled
       ? `${label(s.variable)} has no logarithmic scale`
-      : "Logarithmic (log₁₀) or linear values of Cₙ² and σᵢ²";
+      : `Logarithmic (log₁₀) or linear values of ${vc(s.variable).linear?.label ?? s.variable}`;
     $("colour-z-group").hidden = !data.profileVars.includes(s.variable);
     const latest = latestCycle();
     newer.hidden = !(data instanceof Cycle) || data.id === latest;
@@ -766,7 +785,7 @@ async function main() {
     else if (any("zi") && daySteps) dayView.setCursor(daySteps, -1, s.zi);
     renderControls();
     if (any("playing")) schedulePlay();
-    history.replaceState(null, "", toHash(s, data));
+    history.replaceState(null, "", toHash(s, data, logDefault));
   });
 
   // Switching cycles or between forecast and climatology keeps the physical view (lead hours or month, height,
@@ -792,7 +811,7 @@ async function main() {
     await mapView.setCycle(data);
     const r = resolve(h, data, fallback(data));
     r.lead = limitSteps(r.lead, explicit && (h.leadHours !== undefined || h.month !== undefined));
-    store.state = { ...st(), mode: climOf(data) ? "clim" : "live", ...(data instanceof Cycle && { cycle: data.id }), ...r, ...(h.logValues !== undefined && { logValues: h.logValues }) }; // fmt: skip
+    store.state = { ...st(), mode: climOf(data) ? "clim" : "live", ...(data instanceof Cycle && { cycle: data.id }), ...r, logValues: logOf(h) ?? st().logValues }; // fmt: skip
     await data.loadStep(r.lead);
     renderAll();
     void loading(["th"], data.loadAll(r.lead, firstStep));
@@ -825,7 +844,7 @@ async function main() {
     renderDiurnal();
     renderControls();
     renderStatus();
-    history.replaceState(null, "", toHash(s, data));
+    history.replaceState(null, "", toHash(s, data, logDefault));
   }
 
   // Links in the notes and edits of the URL
@@ -836,7 +855,8 @@ async function main() {
     const before = firstStep;
     const r = resolve(h, data, { ...st() });
     r.lead = limitSteps(r.lead, h.leadHours !== undefined);
-    store.set({ ...r, playing: false, ...(h.logValues !== undefined && { logValues: h.logValues }) });
+    const log = logOf(h);
+    store.set({ ...r, playing: false, ...(log && { logValues: log }) });
     if (firstStep !== before) {
       renderTimeHeight();
       renderControls();
@@ -846,6 +866,7 @@ async function main() {
 
   addEventListener("keydown", (e) => {
     const t = e.target as HTMLElement;
+    if (downloadDialog.open) return;
     if (t.tagName === "SELECT" || (t.tagName === "INPUT" && (t as HTMLInputElement).type !== "checkbox")) return;
     const s = st();
     const n = data.times.length;

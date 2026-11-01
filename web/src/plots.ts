@@ -391,7 +391,7 @@ function violinOutline(x: number[], d: Float32Array): [number, number][] {
   return lo > hi ? [] : x.slice(lo, hi + 1).map((v, i) => [v, d[lo + i]]);
 }
 
-/** Box `k` of `b` centred at `cx`, `w` wide, in `parent`: whiskers p5 to p95, box p25 to p75, median line, mean dot;
+/** Box `k` of `b` centred at `cx`, `w` wide, in `parent`: whiskers p5 to p95 (with caps), box p25 to p75, median line, mean dot;
  * with an `outline` (values and densities, `violinOutline`) a violin with a narrow box inside instead. */
 function drawBox(parent: G, b: BoxStats, k: number, cx: number, w: number, y: ScaleLinear<number, number>, outline?: [number, number][]): G { // fmt: skip
   const box = parent.append("g").attr("class", "box");
@@ -408,6 +408,8 @@ function drawBox(parent: G, b: BoxStats, k: number, cx: number, w: number, y: Sc
     box.append("line").attr("class", "median").attr("x1", cx - 2 * iw).attr("x2", cx + 2 * iw).attr("y1", y(b.median[k])).attr("y2", y(b.median[k])); // fmt: skip
   } else {
     box.append("line").attr("class", "whisker").attr("x1", cx).attr("x2", cx).attr("y1", y(b.p5[k])).attr("y2", y(b.p95[k])); // fmt: skip
+    for (const end of [b.p5[k], b.p95[k]]) // caps: the ends of the interval
+      box.append("line").attr("class", "whisker").attr("x1", cx - w / 4).attr("x2", cx + w / 4).attr("y1", y(end)).attr("y2", y(end)); // fmt: skip
     box.append("rect").attr("x", cx - w / 2).attr("width", w).attr("y", y(b.p75[k])).attr("height", Math.max(1, y(b.p25[k]) - y(b.p75[k]))); // fmt: skip
     box.append("line").attr("class", "median").attr("x1", cx - w / 2).attr("x2", cx + w / 2).attr("y1", y(b.median[k])).attr("y2", y(b.median[k])); // fmt: skip
   }

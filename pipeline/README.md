@@ -33,7 +33,7 @@ live/run.sh                        # one run: the newest complete GFS cycle on A
 | `step_0_prepare.py` | picks the cycle (newest complete one on AWS, or `--cycle`), creates `data/live/<cycle>/` and links it as `running`; resumes an interrupted run; exits 99 if the cycle is processed already |
 | `step_1_download_gfs.py` | the 121 lead times (0-120 h) over the NL area → `1_raw/` (resumable) |
 | `step_2_predict.py` | SQF-H with output quantile mapping → `2_prediction/preds.nc` (skipped if there) |
-| `step_3_convert.py` | → `data/webui/<YYYYMMDDHH>/` and `index.json` (newest 8 cycles); finishes the run: removes `running`, keeps the newest 8 run directories (~140 MB each) |
+| `step_3_convert.py` | → `data/webui/<YYYYMMDDHH>/` (with the forecast as NetCDF for download, ~7 MB) and `index.json` (newest 8 cycles); finishes the run: removes `running`, keeps the newest 8 run directories (~140 MB each) |
 | `step_4_upload.sh` | mirrors `data/webui/` to the remote (rclone); independent of the run, a failure is repeated next time |
 
 `run.sh` takes a lock (one run at a time). `watcher.sh` calls it every hour (GFS cycles are complete on AWS ~4-5 h after

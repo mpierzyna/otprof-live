@@ -34,16 +34,6 @@ LINEAR = {"lcn2": "cn2", "lsi2": "si2"}
 # Resolution of the stored values (forecast and climatology): log10 Cn2 to 0.01 (2.3 % in Cn2, below the model's
 # error; the noise of a finer one does not compress: ~2.5 x larger with gzip). Others: the finest their range allows.
 RESOLUTION = {"lcn2": 0.01}
-CLIM_NOTES = """\
-## Climatology
-
-Cn² profiles predicted by SQF-H from ERA5 (0.25°, 3-hourly), summarised per calendar month and grid point.
-The statistics of each month pool all hours of the day; the diurnal cycle splits them by hour (UTC). The annual and
-the diurnal cycle of r0 and σᵢ² are shown as box plots or as violins (the distribution as a kernel density, with the
-25th–75th percentile box inside).
-The map shows the selected statistic; the profile shows the 25th–75th (dark) and 5th–95th (light) percentile bands.
-Months with few years in the sample (listed above the profile) are less representative.
-"""
 
 
 def quantize(vals: np.ndarray, resolution: float | None = None) -> tuple[np.ndarray, dict]:
@@ -62,9 +52,11 @@ def write_cycle(
     cycle: pd.Timestamp,
     info: dict[str, str] | None = None,
     notes: str | None = None,
+    download: str | None = None,
 ) -> pathlib.Path:
     """Write `ds` as cycle `cycle_id` (directory name) initialised at `cycle` (UTC) below `data_root`, as uint16 with
     scale and offset from the data range per variable (scale `RESOLUTION` if there). `notes`: markdown of the cycle.
+    `download`: name of a file in the cycle directory (written before) that the app offers for download.
 
     `ds`: coords lead (hours), z (m above ground, if any variable has it), lat, lon (increasing); variables
     (lead, z, lat, lon) or (lead, lat, lon), NaN = missing."""
@@ -107,6 +99,8 @@ def write_cycle(
     if notes is not None:
         (out / "notes.md").write_text(notes)
         meta["notes"] = "notes.md"
+    if download is not None:
+        meta["download"] = {"file": download, "bytes": (out / download).stat().st_size}
     # meta.json last: a cycle directory with meta.json is complete
     (out / "meta.json").write_text(json.dumps(meta, indent=1))
     return out
@@ -269,7 +263,6 @@ def write_climatology(
         **({"Correction": "nl-oQM"} if grid.attrs.get("otprof_oqm") else {}),
         "Sample": f"{len(months)} months, {first} to {last}",
     }
-    (out / "notes.md").write_text(CLIM_NOTES)
     meta = {
         "format": CLIM_FORMAT,
         "months": [int(m) for m in grid["month"].values],
@@ -280,7 +273,6 @@ def write_climatology(
         "lon": [round(float(v), 5) for v in grid["lon"].values],
         "z_agl": [round(float(v), 2) for v in grid["z"].values],
         "info": info,
-        "notes": "notes.md",
         "variables": variables,
     }
     # meta.json last: a climatology directory with meta.json is complete
