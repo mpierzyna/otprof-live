@@ -1,6 +1,12 @@
 import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { marked, type Token } from "marked";
+import { Marked, type MarkedExtension, type Token } from "marked";
+import { liteAdaptor } from "mathjax-full/js/adaptors/liteAdaptor.js";
+import { RegisterHTMLHandler } from "mathjax-full/js/handlers/html.js";
+import { TeX } from "mathjax-full/js/input/tex.js";
+import { AllPackages } from "mathjax-full/js/input/tex/AllPackages.js";
+import { mathjax } from "mathjax-full/js/mathjax.js";
+import { SVG } from "mathjax-full/js/output/svg.js";
 import { type Connect, defineConfig, type Plugin } from "vite";
 
 // Development data (default: the pipelines' web data, pipeline/data/webui) served at /data/ by the dev and preview
@@ -25,6 +31,31 @@ function devData(): Plugin {
 // <!--content:NAME:text--> as plain text (<title>), <!--content:NAME:heading--> its first heading (inline) and
 // <!--content:NAME:body--> the rest. Links not starting with "#" (those set the view) open in a new tab.
 const CONTENT = resolve(__dirname, "content");
+
+// LaTeX in the texts: $...$ inline, $$...$$ displayed, rendered by MathJax to SVG at build time (no fonts or scripts in
+// the browser; the SVG takes the text colour). A literal dollar sign: \$.
+function math(): MarkedExtension {
+  const adaptor = liteAdaptor();
+  RegisterHTMLHandler(adaptor);
+  const doc = mathjax.document("", { InputJax: new TeX({ packages: AllPackages }), OutputJax: new SVG({ fontCache: "local" }) });
+  const tex = (src: string, display: boolean) => adaptor.outerHTML(doc.convert(src, { display }));
+  return {
+    extensions: [
+      {
+        name: "math",
+        level: "inline",
+        start: (src) => src.indexOf("$"),
+        tokenizer(src) {
+          // No space inside the delimiters and no digit after the closing one, so prices like $5 and $10 stay text
+          const m = /^(\$\$?)(?!\s)((?:\\.|[^\\$])+?)(?<!\s)\1(?!\d)/.exec(src);
+          return m ? { type: "math", raw: m[0], text: m[2], display: m[1].length === 2 } : undefined;
+        },
+        renderer: (t) => tex(t.text, t.display),
+      },
+    ],
+  };
+}
+const marked = new Marked(math());
 
 function content(): Plugin {
   const external = (html: string) => html.replace(/<a href="(?!#)/g, '<a target="_blank" rel="noopener noreferrer" href="');

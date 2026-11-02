@@ -1,1 +1,1 @@
-Optical turbulence forecast · SQF-H on GFS
+Live forecasts and climatology of optical turbulence over the Netherlands

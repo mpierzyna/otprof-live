@@ -1290,6 +1290,13 @@ input[type="range"]:disabled {
   border-top: 1px solid var(--border);
   margin: 18px 0;
 }
+/* LaTeX rendered by MathJax at build time (vite.config.ts) */
+mjx-container[display="true"] {
+  display: block;
+  margin: 12px 0;
+  overflow-x: auto;
+  text-align: center;
+}
 .info {
   display: grid;
   grid-template-columns: max-content 1fr;

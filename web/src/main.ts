@@ -469,6 +469,7 @@ async function main() {
       info.append(dt, dd);
     }
     // The texts of the page (content/) and the notes of the data, if any
+    $("notes-live").hidden = !!climOf(data);
     $("notes-clim").hidden = !climOf(data);
     void renderNotes($("notes-data"), data.notes ? [new URL(data.notes, data.base).href] : []);
     if (hooked.has(data)) return;
