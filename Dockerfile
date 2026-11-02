@@ -1,5 +1,5 @@
 # Static app in an nginx image: built in a Node stage, only web/dist ends up in the final image.
-# The forecast data are not part of the image: compose.yaml mounts them at /usr/share/nginx/html/data.
+# The forecast data are not part of the image: docker-compose.yml mounts them at /usr/share/nginx/html/data.
 FROM node:24-slim AS build
 WORKDIR /app/web
 COPY web/package.json web/package-lock.json ./

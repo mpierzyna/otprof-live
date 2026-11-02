@@ -2,11 +2,9 @@
 """Download 3-hourly ERA5 over the NL training area from 2005 on from the CDS (GRIB) → `1_raw/cds/{pl,sl}/*.grib`
 (below `CLIM_DATA`, see shared.py).
 
-Same area and variables as the NL training data (otprof-research `data/wrf_cn2_rev02`, step 1); only the time window differs, and the
-time step (3 h instead of 1 h). The quarters are downloaded one by one in the order of a Sobol sequence over (year,
-quarter) (`QUARTERS`): every prefix is a sample spread evenly over the years and seasons, usable (step 2) long before
-the download is complete. The months in `HOURLY` were downloaded hourly by an earlier version of this script and are
-kept: their quarters request only the other months. Without `--download` only the plan is printed. Resumable: existing
+Same area and variables as the training data of SQF-H. The quarters are downloaded one by one in the order of a Sobol
+sequence over (year, quarter) (`QUARTERS`): every prefix is a sample spread evenly over the years and seasons, usable
+(step 2) long before the download is complete. Without `--download` only the plan is printed. Resumable: existing
 files are skipped and submitted requests are picked up again from `1_raw/cds/requests.json` instead of being queued
 again. The plan is kept in `1_raw/cds/jobs.json`, where `era5_cds.fetch` finds the files (step 2).
 """
@@ -21,8 +19,7 @@ RAW = CLIM_DATA / "1_raw"
 START, END = "2005-01", "2026-06"  # END: last month of final ERA5 (later months are the preliminary ERA5T)
 HOURS = range(0, 24, 3)  # UTC
 GRIB_BYTES_PER_FIELD = 1600  # measured on the NL area (25 x 29 points, 16-bit packing)
-AREA = Area(lon_min=2, lon_max=9, lat_min=49, lat_max=55)  # `nl` of otprof-research data/wrf_cn2_rev02/params.yaml
-HOURLY = ["2010-08", "2014-03", "2017-04", "2023-12"]  # downloaded (or queued) hourly before the switch to 3-hourly
+AREA = Area(lon_min=2, lon_max=9, lat_min=49, lat_max=55)  # the NL training area of SQF-H
 
 
 def order_quarters_sobol(start: str, end: str, *, seed: int = 0) -> list[str]:
@@ -47,16 +44,14 @@ def order_quarters_sobol(start: str, end: str, *, seed: int = 0) -> list[str]:
     return order
 
 
-def list_months_3h(quarter: str) -> list[str]:
-    """The months of `quarter` (e.g. "2017Q1") downloaded 3-hourly, i.e. not in `HOURLY`."""
+def list_months(quarter: str) -> list[str]:
+    """The months of `quarter` (e.g. "2017Q1")."""
     first = pd.Period(quarter, "Q").asfreq("M", "start")
-    return [str(m) for m in pd.period_range(first, first + 2) if str(m) not in HOURLY]
+    return [str(m) for m in pd.period_range(first, first + 2)]
 
 
 QUARTERS = order_quarters_sobol(START, END, seed=0)  # download order; fixed seed: the same order on every run
-MONTHS = HOURLY + [
-    m for q in QUARTERS for m in list_months_3h(q)
-]  # download order: the hourly months were queued first
+MONTHS = [m for q in QUARTERS for m in list_months(q)]  # download order
 
 
 def make_times(months: list[str], freq: str) -> pd.DatetimeIndex:
@@ -65,13 +60,13 @@ def make_times(months: list[str], freq: str) -> pd.DatetimeIndex:
 
 
 def make_blocks() -> list[pd.DatetimeIndex]:
-    """The time blocks in download order: the hourly months, then the 3-hourly months of each quarter."""
-    return [make_times([m], "h") for m in HOURLY] + [make_times(list_months_3h(q), f"{HOURS.step}h") for q in QUARTERS]
+    """The time blocks in download order: the months of each quarter, 3-hourly."""
+    return [make_times(list_months(q), f"{HOURS.step}h") for q in QUARTERS]
 
 
 def make_era5_jobs() -> era5_cds.Jobs:
-    """The CDS requests in download order: {file name in `1_raw/cds`: job}, one block per hourly month and quarter,
-    e.g. `pl/2014_03_<i>.grib` (hourly), `pl/2014_01-02_<i>.grib` (2014Q1 without the hourly March)."""
+    """The CDS requests in download order: {file name in `1_raw/cds`: job}, one block per quarter, e.g.
+    `pl/2014_01-03_<i>.grib`."""
     return era5_cds.make_jobs(make_blocks(), AREA)
 
 
@@ -88,7 +83,7 @@ if __name__ == "__main__":
     )  # upper bound: 31 days per month
     n_done = sum((RAW / "cds" / name).exists() for name in jobs)
     print(f"{START} .. {END}: {len(QUARTERS)} quarters, {len(jobs)} CDS requests, {n_done} downloaded already")
-    print(f"Order: {', '.join(QUARTERS[:8])}, ... (after the hourly months {', '.join(HOURLY)})")
+    print(f"Order: {', '.join(QUARTERS[:8])}, ...")
     print(f"Size to download: ~{n_fields * GRIB_BYTES_PER_FIELD / 1e9:.0f} GB (GRIB, {n_fields / 1e6:.1f} M fields)")
     if args.download:
         era5_cds.download(make_blocks(), AREA, RAW / "cds", max_active=args.max_active)

@@ -3,7 +3,7 @@
 
 Month by month, in the order of step 2, every month in the ERA5 store (`list_months_in_store`) not predicted yet, so
 this can run any time during the download, after step 2. Per month: `era5_cds.standardize` → `make_inputs` (binary
-land-sea mask, as `otprof_research.inputs` everywhere in research) → `otprof.predict.predict` with the output quantile
+land-sea mask, as in training) → `otprof.predict.predict` with the output quantile
 mapping, at the 99 default heights of the model (the WRF levels it was trained on, `z_agl`).
 
 The store has the time axis of step 2 (months not predicted yet are NaN), dims (time, lat, lon[, bottom_top]):
@@ -45,7 +45,7 @@ def open_predictions() -> xr.Dataset:
 
 def make_inputs(ds: xr.Dataset) -> xr.Dataset:
     """SQF-H inputs of `ds` with a binary land-sea mask (`lsm` > 0.5): SQF-H is trained on WRF's binary mask, ERA5's
-    `lsm` is the fractional land cover (as `otprof_research.inputs.make_inputs`)."""
+    `lsm` is the fractional land cover."""
     lsm = ds["lsm"]
     return inputs.make_inputs(ds.assign(lsm=(lsm > 0.5).astype(lsm.dtype).assign_attrs(lsm.attrs)))
 

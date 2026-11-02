@@ -2,8 +2,7 @@
 
 Two pipelines write the web app's data (`docs/DATA_FORMAT.md`) into one data root, which the live pipeline uploads to
 the web server. Both run in this uv environment (`pyproject.toml`, with the `otprof` submodule) and share the package
-`otprof_live` (`src/`): the paths (`config`) and the writers of the data formats (`webui`). otprof-research is not
-needed.
+`otprof_live` (`src/`): the paths (`config`) and the writers of the data formats (`webui`).
 
 ```
 pipeline/
@@ -19,8 +18,7 @@ pipeline/
 ```
 
 The paths come from the environment or `.env` (relative to `pipeline/`); `uv run python -m otprof_live.config` prints
-them. By default everything is below `data/`. During development the climatology can stay where it was computed:
-`OTPROF_CLIM_DATA=../../otprof-research/data/era5_clim` in `.env`.
+them. By default everything is below `data/`.
 
 ## Live forecast (`live/`)
 

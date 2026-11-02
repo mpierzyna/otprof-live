@@ -3,8 +3,7 @@
 
 Month by month, in the download order of step 1 (`MONTHS`), every month whose GRIB files are complete; months still
 downloading are skipped, so this can run any time during the download to update the store. 3-hourly, like the
-download: the months downloaded hourly (`HOURLY` of step 1) are read at the same hours (`era5_cds.fetch`). The store is created for
-the whole time window first (months not written yet are NaN) and each month is written to its region; the months in
+download. The store is created for the whole time window first (months not written yet are NaN) and each month is written to its region; the months in
 the store are listed in `1_raw/era5.zarr.done` (see `list_months_in_store`, `open_store`). `--delete-grib` deletes each GRIB
 file once all its months are in the store.
 """
