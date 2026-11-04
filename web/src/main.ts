@@ -80,6 +80,7 @@ const TH_HINT = "Hover for values, click to select a time and height";
 const DAY_HINT = "Hover for values, click to select a height";
 const DISCLAIMER_KEY = "otprof-live.disclaimer"; // localStorage: "closed" once the banner was collapsed
 const INDEX_POLL_MS = 10 * 60 * 1000; // new forecast runs: checked every 10 min
+const LIVE_CHECK_MS = 30 * 1000; // the live badge: goes off soon after the hour turns
 /** A cycle directory name (YYYYMMDDHH) as e.g. "Fri 30 Oct, 00 UTC". */
 function fmtCycle(id: string): string {
   const m = /^(\d{4})(\d{2})(\d{2})(\d{2})$/.exec(id);
@@ -90,9 +91,11 @@ function nowStep(times: Date[]): number {
   const k = futureStep(times);
   return k < 0 ? times.length - 1 : k;
 }
+/** The start of the current hour [ms]. */
+const currentHour = () => Math.floor(Date.now() / 3.6e6) * 3.6e6;
 /** Index of the first time from the current hour (floored) on, -1 if all are earlier. */
 function futureStep(times: Date[]): number {
-  const hour = Math.floor(Date.now() / 3.6e6) * 3.6e6;
+  const hour = currentHour();
   return times.findIndex((t) => t.getTime() >= hour);
 }
 
@@ -735,6 +738,7 @@ async function main() {
     const latest = latestCycle();
     newer.hidden = !(data instanceof Cycle) || data.id === latest;
     newer.title = `A newer forecast is available (${fmtCycle(latest)}): show it`;
+    renderLive();
     for (const b of $("mode-tabs").querySelectorAll("button"))
       b.setAttribute("aria-selected", String(b.dataset.mode === s.mode));
     const c = climOf(data);
@@ -749,6 +753,16 @@ async function main() {
       }
     }
   }
+
+  /** The live badge: the newest forecast run at the current hour. */
+  function renderLive() {
+    $("live-badge").hidden = !(
+      data instanceof Cycle &&
+      data.id === latestCycle() &&
+      data.times[st().lead].getTime() === currentHour()
+    );
+  }
+  setInterval(renderLive, LIVE_CHECK_MS); // the selection stays, the time moves on
 
   function renderStatus() {
     const total = data.times.length - firstStep;

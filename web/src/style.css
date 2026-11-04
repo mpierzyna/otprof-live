@@ -11,6 +11,7 @@
   --border: rgba(55, 53, 47, 0.12);
   --border-strong: rgba(55, 53, 47, 0.2);
   --hover: rgba(55, 53, 47, 0.06);
+  --rec: #d92d20;
   --accent: #2383e2;
   --accent-soft: rgba(35, 131, 226, 0.12);
   --on-accent: #ffffff;
@@ -47,6 +48,7 @@
     --border: rgba(255, 255, 255, 0.09);
     --border-strong: rgba(255, 255, 255, 0.16);
     --hover: rgba(255, 255, 255, 0.055);
+    --rec: #ff5449;
     --accent: #529cca;
     --accent-soft: rgba(82, 156, 202, 0.18);
     --on-accent: #ffffff;
@@ -314,6 +316,46 @@ input {
   display: flex;
   padding: 7px;
   animation: appear 0s 0.15s both;
+}
+
+/* Like the recording mark of an old camera; the spinner moves aside for it */
+.live-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  box-shadow: var(--shadow);
+  color: var(--rec);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.live-badge:not([hidden]) ~ .map-spinner {
+  left: 86px;
+}
+.live-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: rec-blink 2s steps(1) infinite;
+}
+@keyframes rec-blink {
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-dot {
+    animation: none;
+  }
 }
 
 .card-title-row {
