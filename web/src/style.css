@@ -230,6 +230,14 @@ input {
     "th th"
     "diurnal diurnal";
 }
+/* Annual and diurnal cycle side by side: 12 months and 8 hours in the 3 : 2 of the columns, boxes of the same width */
+@media (min-width: 1200px) {
+  .layout.clim .panels {
+    grid-template-areas:
+      "map profile"
+      "th diurnal";
+  }
+}
 @media (min-width: 1700px) {
   .layout {
     grid-template-columns: minmax(0, 5fr) minmax(300px, 1.1fr);

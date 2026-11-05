@@ -152,6 +152,7 @@ async function main() {
     cycle: firstCycle,
     ...resolve(asked, app.data, fallback(app.data)),
     playing: false,
+    annualKind: "box",
     diurnalKind: "box",
     heightScale: config.heightScale,
     colourPerHeight: config.colourPerHeight,
@@ -254,7 +255,9 @@ async function main() {
     }
   }, INDEX_POLL_MS);
   $("mode-tabs").hidden = !climUrl;
-  for (const b of document.querySelectorAll<HTMLButtonElement>(".kind-switch button"))
+  for (const b of $("th-kind").querySelectorAll<HTMLButtonElement>("button"))
+    b.addEventListener("click", () => store.set({ annualKind: b.dataset.kind as State["annualKind"] }));
+  for (const b of $("diurnal-kind").querySelectorAll<HTMLButtonElement>("button"))
     b.addEventListener("click", () => store.set({ diurnalKind: b.dataset.kind as State["diurnalKind"] }));
   for (const b of $("mode-tabs").querySelectorAll<HTMLButtonElement>("button"))
     b.addEventListener("click", () => void switchMode(b.dataset.mode as Mode));

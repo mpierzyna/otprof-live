@@ -11,6 +11,7 @@ export interface State {
   step: number; // index into the steps: the cycle's lead times, the climatology's months
   stat: string; // statistic shown in the climatology
   period: string; // hours of the climatology's statistics: "global" (all), "day", "night"
+  annualKind: "box" | "violin"; // plots of the climatology's annual cycle
   diurnalKind: "box" | "violin"; // plots of the climatology's diurnal cycle
   zi: number; // index into the heights
   cell: number; // lat index * nlon + lon index, -1 for none

@@ -333,13 +333,13 @@ export class Renderer {
     const c = climOf(data);
     const stat = statFor(pv);
     // Climatology: the column variables per month as box plots or violins
-    const kind = c?.monthViolinVars.length && !boxOnly ? s.diurnalKind : "box";
+    const kind = c?.monthViolinVars.length && !boxOnly ? s.annualKind : "box";
     $("th-kind").hidden = !c?.monthViolinVars.length;
     for (const b of $("th-kind").querySelectorAll<HTMLButtonElement>("button"))
       b.setAttribute("aria-pressed", String(b.dataset.kind === kind));
     if (c && kind === "violin" && c.monthViolinVars.some((n) => !c.monthViolin(n, s.cell, linear(n)))) {
       // Drawn once the densities are loaded, the previous plot stays until then
-      const current = () => climOf(this.data) === c && this.s.diurnalKind === "violin";
+      const current = () => climOf(this.data) === c && this.s.annualKind === "violin";
       void loading(["th"], c.loadMonthViolins(linear)).then(
         () => current() && this.timeHeight(),
         (e) => (console.warn("Loading the violins of the annual cycle failed:", e), current() && this.timeHeight(true)),
@@ -438,6 +438,7 @@ export class Renderer {
         fmt: fmt(name),
         boxes: this.shownBoxes(name, c.diurnal(name, s.step, s.cell)),
         violins: kind === "violin" ? this.shownViolins(name, c.violin(name, s.step, s.cell, linear(name))) : undefined,
+        range: kind === "box" ? this.diurnalRange(c, name) : undefined, // violins: the axis of the month
       })),
       stepLabel: (h) => `${fmtMonth(c.times[s.step])}, ${format("02d")(hours[h])}:00 UTC`,
       stat,
@@ -445,6 +446,17 @@ export class Renderer {
       hours: true,
     });
     drawColorbar($("diurnal-colorbar"), cmap(pv), shownRange(pv, this.globalRange(pv)), fullLabel(pv));
+  }
+  /** The y axis of the box plots of a column of the diurnal cycle at the cell: the whiskers of all months and hours, the
+   * same in all months so that they compare. */
+  private diurnalRange(c: Climatology, name: string): [number, number] | undefined {
+    const values: number[] = [];
+    for (let m = 0; m < c.times.length; m++) {
+      const b = this.shownBoxes(name, c.diurnal(name, m, this.s.cell));
+      if (b) values.push(...b.p5, ...b.p95);
+    }
+    const finite = values.filter(Number.isFinite);
+    return finite.length ? [Math.min(...finite), Math.max(...finite)] : undefined;
   }
   /** Box statistics per step as shown; shown linearly, the mean is that of the linear values (lmean) if there. */
   private shownBoxes(name: string, stats: Record<string, Float32Array> | undefined): BoxStats | undefined {
@@ -572,7 +584,7 @@ export class Renderer {
     if (any("variable", "step", "zi", "colourPerHeight", "stat", "logValues")) this.map();
     if (any("cell")) this.mapView.setSelection(s.cell);
     if (any("variable", "step", "zi", "cell", "heightScale", "stat", "logValues")) this.profile();
-    if (any("variable", "cell", "heightScale", "stat", "logValues", "diurnalKind")) this.timeHeight();
+    if (any("variable", "cell", "heightScale", "stat", "logValues", "annualKind")) this.timeHeight();
     else if (any("step", "zi")) this.thView.setCursor(this.data, s.step, s.zi);
     if (any("variable", "step", "cell", "heightScale", "stat", "diurnalKind", "logValues")) this.diurnal();
     else if (any("zi") && this.daySteps) this.dayView.setCursor(this.daySteps, -1, s.zi);

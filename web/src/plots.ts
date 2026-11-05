@@ -166,6 +166,7 @@ interface TimeHeightOptions {
     tf?: (v: number) => number;
     boxes?: BoxStats;
     violins?: Violins;
+    range?: [number, number]; // of the y axis of boxes or violins, else of what is shown
   }[];
   tf?: (v: number) => number;
   stepLabel: (step: number) => string;
@@ -322,7 +323,8 @@ export class TimeHeightView {
         const outlines = c.violins?.density.map((d) => violinOutline(c.violins!.x, d));
         const shownSteps = steps.times.map((_, l) => l).filter(shown);
         const finite = shownSteps.flatMap((l) => [b.p5[l], b.p95[l], ...(outlines?.[l].map(([v]) => v) ?? [])]).filter((v) => !Number.isNaN(v)); // fmt: skip
-        const ys = scaleLinear().domain(finite.length ? [Math.min(...finite), Math.max(...finite)] : [0, 1]).range([stripH, 0]).nice(4); // fmt: skip
+        const domain = c.range ?? (finite.length ? [Math.min(...finite), Math.max(...finite)] : [0, 1]);
+        const ys = scaleLinear().domain(domain).range([stripH, 0]).nice(4);
         yAxes(ys, 4);
         const clip = `clip-${Math.random().toString(36).slice(2)}`;
         gs.append("clipPath").attr("id", clip).append("rect").attr("width", pw).attr("height", stripH);
