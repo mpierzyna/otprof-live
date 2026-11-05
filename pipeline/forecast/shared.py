@@ -1,4 +1,4 @@
-"""Settings of the live forecast pipeline. Paths: `otprof_live.config` (env vars, pipeline/.env)."""
+"""Settings of the forecast pipeline. Paths: `otprof_live.config` (env vars, pipeline/.env)."""
 
 import datetime
 

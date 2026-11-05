@@ -1,9 +1,9 @@
-"""Paths of the pipelines (live forecast and climatology), from environment variables with local defaults.
+"""Paths of the pipelines (forecast and climatology), from environment variables with local defaults.
 
     pipeline/data/                OTPROF_DATA: data root of both pipelines (git-ignored)
-      live/<cycle>/, live/running OTPROF_FORECAST_DATA: one run directory per GFS cycle (live pipeline)
+      forecast/<cycle>/, running  OTPROF_FORECAST_DATA: one run directory per GFS cycle (forecast pipeline)
       climatology/                OTPROF_CLIM_DATA: ERA5 GRIB and zarr, predictions, statistics (climatology pipeline)
-      webui/                      OTPROF_WEBUI_DATA: the web app's data root (docs/DATA_FORMAT.md), uploaded by live step 4
+      webui/                      OTPROF_WEBUI_DATA: the web app's data root (docs/DATA_FORMAT.md), see upload.sh
 
 The variables come from the environment or from `pipeline/.env` (KEY=value lines; the environment wins). Relative paths
 are relative to `pipeline/`. Print a path for shell scripts: `uv run python -m otprof_live.config webui`.
@@ -43,7 +43,7 @@ def get_path(var: str, default: pathlib.Path) -> pathlib.Path:
 
 
 DATA_ROOT = get_path("OTPROF_DATA", PIPELINE_ROOT / "data")
-FORECAST_DATA = get_path("OTPROF_FORECAST_DATA", DATA_ROOT / "live")
+FORECAST_DATA = get_path("OTPROF_FORECAST_DATA", DATA_ROOT / "forecast")
 CLIM_DATA = get_path("OTPROF_CLIM_DATA", DATA_ROOT / "climatology")
 WEBUI_DATA = get_path("OTPROF_WEBUI_DATA", DATA_ROOT / "webui")
 

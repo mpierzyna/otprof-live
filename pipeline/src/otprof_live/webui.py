@@ -5,6 +5,8 @@ Values are stored as uint16 with scale and offset from their range (`quantize`),
 complete once its meta.json exists (written last), and the index lists only complete directories.
 """
 
+import contextlib
+import fcntl
 import json
 import pathlib
 import shutil
@@ -22,6 +24,16 @@ CLIM_DIR = "climatology"  # directory of the climatology in a data root
 # Resolution of the stored values (forecast and climatology): log10 Cn2 to 0.01 (2.3 % in Cn2, below the model's
 # error; the noise of a finer one does not compress: ~2.5 x larger with gzip). Others: the finest their range allows.
 RESOLUTION = {"lcn2": 0.01}
+
+
+@contextlib.contextmanager
+def data_root_lock(data_root: pathlib.Path):
+    """While writing to `data_root`: excludes the upload (../upload.sh takes the same lock) and the other pipeline. The
+    lock file `<data_root>.lock` is beside the data root, so that it is not uploaded. Waits for the lock."""
+    data_root.parent.mkdir(parents=True, exist_ok=True)
+    with data_root.with_name(data_root.name + ".lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
 
 
 def quantize(vals: np.ndarray, resolution: float | None = None) -> tuple[np.ndarray, dict]:

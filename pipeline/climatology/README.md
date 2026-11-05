@@ -16,8 +16,9 @@ uv run step_1_download_era5.py --download   # CDS → 1_raw/cds/{pl,sl}/*.grib (
 ./run.sh [--delete-grib]                    # steps 2 to 5 on what is downloaded so far
 ```
 
-`run.sh` can run any time during the download: each step processes only the months that are new. The next live run
-uploads the result (or `bash ../live/step_4_upload.sh`).
+`run.sh` is run by hand, not by the watcher: any time during the download for a first look (each step processes only
+the months that are new), and once more when the download is finished. The watcher uploads the result at its next check
+(or `../upload.sh`).
 
 | step | does |
 |---|---|

@@ -46,13 +46,6 @@ DISCLAIMER = (
 )
 
 
-def to_grid(ds: xr.Dataset) -> xr.Dataset:
-    """Increasing lat and lon, heights as the coordinate `z`."""
-    if "bottom_top" in ds.dims:
-        ds = ds.assign_coords(bottom_top=ds["z_agl"].values).drop_vars("z_agl").rename(bottom_top="z")
-    return ds.sortby(["lat", "lon"])
-
-
 def with_lmean(ds: xr.Dataset, name: str) -> xr.DataArray:
     """The `CLIM_STATS` of `name`, and `lmean` if it has a linear variable in `LINEAR`."""
     da = ds[name].sel(stat=CLIM_STATS)

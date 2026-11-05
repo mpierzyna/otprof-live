@@ -1,0 +1,14 @@
+# The watcher as a systemd user service: restarts after a failure and a reboot, logs to the journal. Not enabled by
+# default; see pipeline/README.md. Assumes the clone at ~/Projects/otprof-live and uv at ~/.local/bin.
+[Unit]
+Description=OTProf: process new GFS cycles and upload the web app's data
+After=network-online.target
+
+[Service]
+ExecStart=%h/Projects/otprof-live/pipeline/watcher.sh
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=default.target

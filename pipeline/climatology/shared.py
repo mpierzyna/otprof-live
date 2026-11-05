@@ -3,7 +3,7 @@ Paths: `otprof_live.config` (env vars, pipeline/.env).
 
 `CLIM_DATA` (`OTPROF_CLIM_DATA`, default pipeline/data/climatology) holds `1_raw/` (GRIB, ERA5 zarr), `3_predictions/`
 and `4_climatology/`, ~250 GB in all. Step 5 writes the web app's climatology into `WEBUI_DATA`, the data root shared
-with the live pipeline (../live), whose step 4 uploads it.
+with the forecast pipeline, which ../upload.sh publishes.
 """
 
 import pathlib
@@ -47,6 +47,13 @@ def open_done(store: pathlib.Path) -> xr.Dataset:
     """`store`, only the time steps of the months written so far (the others are NaN)."""
     ds = xr.open_zarr(store)
     return ds.sel(time=ds["time"].dt.strftime("%Y-%m").isin(list_months_done(store)))
+
+
+def to_grid(ds: xr.Dataset) -> xr.Dataset:
+    """Increasing lat and lon, heights as the coordinate `z`."""
+    if "bottom_top" in ds.dims:
+        ds = ds.assign_coords(bottom_top=ds["z_agl"].values).drop_vars("z_agl").rename(bottom_top="z")
+    return ds.sortby(["lat", "lon"])
 
 
 def order_quarters_sobol(start: str, end: str, *, seed: int = 0) -> list[str]:
@@ -96,6 +103,13 @@ def make_times(months: list[str], freq: str) -> pd.DatetimeIndex:
 def make_blocks() -> list[pd.DatetimeIndex]:
     """The time blocks in download order: the months of each quarter, 3-hourly."""
     return [make_times(list_months(q), f"{HOURS.step}h") for q in download_quarters()]
+
+
+def make_blocks_to_download() -> list[pd.DatetimeIndex]:
+    """`make_blocks` without the quarters whose months are all in the ERA5 store: their GRIB files are not needed any
+    more, and may have been deleted (step 2)."""
+    done = set(list_months_done(ERA5_STORE))
+    return [make_times(list_months(q), f"{HOURS.step}h") for q in download_quarters() if not set(list_months(q)) <= done]
 
 
 def make_era5_jobs() -> era5_cds.Jobs:

@@ -7,7 +7,7 @@ The cycle directory also gets the forecast as NetCDF for download (`otprof-live_
 
 Only the newest `KEEP_CYCLES` cycles stay in the web app (older cycle directories are deleted; the index keeps the
 climatology). Finishing the run removes the `running` link, so the next step 0 starts a new cycle, and deletes all but
-the newest `KEEP_RUNS` run directories. Step 4 then uploads `WEBUI_DATA`; a failed upload does not block the next run.
+the newest `KEEP_RUNS` run directories. ../upload.sh publishes `WEBUI_DATA`.
 """
 
 import datetime
@@ -29,7 +29,7 @@ from shared import (
 
 from otprof_live.config import setup_logging
 from otprof_live.netcdf import LICENSE
-from otprof_live.webui import write_cycle, write_index
+from otprof_live.webui import data_root_lock, write_cycle, write_index
 
 VARIABLES = ["lcn2", "r0", "lsi2"]  # exported, in this order (the app shows them in this order)
 KEEP_CYCLES = 8  # cycles kept in the web app (2 days of 6-hourly cycles)
@@ -93,7 +93,7 @@ def to_download(ds: xr.Dataset, cycle: pd.Timestamp, oqm: bool) -> tuple[xr.Data
         + (", output quantile mapping nl-oQM" if oqm else ""),
         "disclaimer": DISCLAIMER,
         "license": LICENSE,
-        "history": f"{pd.Timestamp.now(tz='UTC'):%Y-%m-%dT%H:%M:%SZ} otprof-live, live/step_3_convert.py",
+        "history": f"{pd.Timestamp.now(tz='UTC'):%Y-%m-%dT%H:%M:%SZ} otprof-live, forecast/step_3_convert.py",
         "Conventions": "CF-1.8",
     }
     chunks = (1, out.sizes["z"], out.sizes["lat"], out.sizes["lon"])  # one lead time per chunk
@@ -132,14 +132,15 @@ if __name__ == "__main__":
     cycle_id = f"{cycle:%Y%m%d%H}"
     nc, encoding = to_download(ds, cycle, oqm="Correction" in info)
     download = f"otprof-live_{cycle_id}_EXPERIMENTAL.nc"
-    (WEBUI_DATA / cycle_id).mkdir(parents=True, exist_ok=True)
-    to_netcdf_atomic(nc, WEBUI_DATA / cycle_id / download, encoding=encoding, engine="netcdf4")
-    cycle_dir = write_cycle(ds, WEBUI_DATA, cycle_id, cycle, info=info, download=download)
-    size = sum(f.stat().st_size for f in cycle_dir.iterdir()) / 1e6
-    logger.info(f"Wrote {cycle_dir} ({size:.1f} MB, {ds.sizes['lead']} leads, {ds.sizes['z']} heights)")
+    with data_root_lock(WEBUI_DATA):
+        (WEBUI_DATA / cycle_id).mkdir(parents=True, exist_ok=True)
+        to_netcdf_atomic(nc, WEBUI_DATA / cycle_id / download, encoding=encoding, engine="netcdf4")
+        cycle_dir = write_cycle(ds, WEBUI_DATA, cycle_id, cycle, info=info, download=download)
+        size = sum(f.stat().st_size for f in cycle_dir.iterdir()) / 1e6
+        logger.info(f"Wrote {cycle_dir} ({size:.1f} MB, {ds.sizes['lead']} leads, {ds.sizes['z']} heights)")
 
-    cycles = write_index(WEBUI_DATA, keep=KEEP_CYCLES)
-    logger.info(f"Wrote index with cycles {cycles}")
+        cycles = write_index(WEBUI_DATA, keep=KEEP_CYCLES)
+        logger.info(f"Wrote index with cycles {cycles}")
 
     finish_run()
     logger.info(f"Run of cycle {cycle} finished")

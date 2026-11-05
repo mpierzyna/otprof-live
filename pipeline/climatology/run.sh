@@ -1,7 +1,8 @@
 #!/bin/bash
 # Update the climatology from what step 1 has downloaded so far: convert (step 2), predict (3), statistics (4), web app
-# format (5). The download (step 1) runs on its own for days: uv run step_1_download_era5.py --download
-# Live step 4 uploads the result with the next forecast run (or: bash ../live/step_4_upload.sh).
+# format (5). One-off runs, by hand: during the download for a first look, and once it is finished. The download (step 1)
+# runs on its own for days: uv run step_1_download_era5.py --download
+# ../watcher.sh uploads the result at its next check (or: ../upload.sh).
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 

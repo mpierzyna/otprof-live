@@ -36,11 +36,11 @@ from shared import (
     STATS_DIR,
     list_months_done,
     open_done,
+    to_grid,
 )
 from tqdm import tqdm
 
 from otprof_live.netcdf import to_netcdf_atomic
-from otprof_live.webui_climatology import to_grid
 
 PERCENTILES = (0.01, 0.05, 0.1, 0.5, 2.5, 5.0, 25.0, 50.0, 75.0, 95.0, 97.5, 99.5, 99.9, 99.95, 99.99)
 BOX_PERCENTILES = (5.0, 25.0, 50.0, 75.0, 95.0)

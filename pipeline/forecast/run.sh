@@ -1,8 +1,7 @@
 #!/bin/bash
-# One run of the live pipeline: the newest GFS cycle (step 0) → download, predict, convert (steps 1-3), upload (4).
-# Stops quietly if the newest cycle is processed already; an interrupted run is resumed by the next call.
-# Only one run at a time (lock file); for cron, e.g. every 30 minutes:
-#   */30 * * * * /path/to/pipeline/live/run.sh >> /path/to/pipeline/data/live/run.log 2>&1
+# One run of the forecast pipeline: the newest GFS cycle (step 0) → download, predict, convert (steps 1-3) into the web
+# app's data; ../upload.sh publishes them (../watcher.sh runs both). Stops quietly if the newest cycle is processed
+# already; an interrupted run is resumed by the next call. Only one run at a time (lock file).
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
@@ -22,4 +21,3 @@ fi
 uv run step_1_download_gfs.py
 uv run step_2_predict.py
 uv run step_3_convert.py
-bash step_4_upload.sh

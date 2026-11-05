@@ -71,7 +71,7 @@ data/
 | `z_agl` | heights [m above ground], increasing. Needed if any variable has the dimension `z`. |
 | `info` | optional, shown as key-value pairs in the app. |
 | `notes` | optional, file name of the markdown notes of this cycle, shown after the global notes. |
-| `download` | optional, a file of this cycle the app offers for download (`file`, size in `bytes`), after a disclaimer. The live pipeline writes the forecast as CF NetCDF: `lcn2` (time, z, lat, lon), `r0`, `lsi2` (time, lat, lon), float32, compressed, lcn2 rounded to 0.001, licence CC BY-SA 4.0. |
+| `download` | optional, a file of this cycle the app offers for download (`file`, size in `bytes`), after a disclaimer. The forecast pipeline writes the forecast as CF NetCDF: `lcn2` (time, z, lat, lon), `r0`, `lsi2` (time, lat, lon), float32, compressed, lcn2 rounded to 0.001, licence CC BY-SA 4.0. |
 | `variables` | the fields. The app shows them in this order. |
 
 Per variable:

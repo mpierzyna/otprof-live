@@ -1,0 +1,16 @@
+# The ERA5 download of the climatology (days) as a systemd user service: resumes after a failure and a reboot, logs to
+# the journal, ends when the download is complete. Not enabled by default; see pipeline/README.md. Assumes the clone at
+# ~/Projects/otprof-live and uv at ~/.local/bin.
+[Unit]
+Description=OTProf: download ERA5 for the climatology
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/Projects/otprof-live/pipeline/climatology
+ExecStart=%h/.local/bin/uv run step_1_download_era5.py --download
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+RestartSec=300
+
+[Install]
+WantedBy=default.target

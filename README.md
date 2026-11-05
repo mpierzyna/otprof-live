@@ -14,7 +14,7 @@ No code runs on the server: the pipelines write static files (`docs/DATA_FORMAT.
 web/          the app (Vite + TypeScript, MapLibre GL, d3)
   content/    texts of the app as markdown (title, disclaimer, about, ...), see web/content/README.md
   public/     config.json: variables (labels, units, colour maps), defaults of the view
-pipeline/     the pipelines writing the data (pipeline/README.md): live/ GFS forecasts, climatology/ ERA5 climatology
+pipeline/     the pipelines writing the data (pipeline/README.md): forecast/ GFS forecasts, climatology/ ERA5 climatology
   otprof/     the model (git submodule)
 docs/         DATA_FORMAT.md: the contract between pipelines and app
 Dockerfile, docker-compose.yml, nginx.conf    the deployment
@@ -44,8 +44,8 @@ come from its `meta.json` (`"notes"`). Links like `[text](#lat=52&lon=5&z=1000&t
 
 The server runs a clone of this repository. `Dockerfile` builds the app in a Node stage and puts `web/dist/` with
 `nginx.conf` into an nginx image. `docker-compose.yml` runs it on port 8080 with the data directory `./data` mounted
-read-only at `/data/`; the live pipeline fills that directory (`pipeline/live/step_4_upload.sh`, rclone remote
-pointing at it).
+read-only at `/data/`; the pipeline's upload fills that directory (`pipeline/upload.sh`, rclone remote pointing at
+it).
 
 ```sh
 git clone <repo url> /srv/docker/otprof_live && cd /srv/docker/otprof_live

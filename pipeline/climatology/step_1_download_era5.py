@@ -4,8 +4,9 @@
 Same area and variables as the training data of SQF-H. The quarters are downloaded one by one in the order of a Sobol
 sequence over (year, quarter) (`download_quarters`): every prefix is a sample spread evenly over the years and seasons,
 usable (step 2) long before the download is complete. Without `--download` only the plan is printed. Resumable: existing
-files are skipped and submitted requests are picked up again from `requests.json` in `GRIB_DIR` instead of being queued
-again. The plan is kept in `jobs.json` there, where `era5_cds.fetch` finds the files (step 2).
+files are skipped, quarters already in the ERA5 store of step 2 too, and submitted requests are picked up again from
+`requests.json` in `GRIB_DIR` instead of being queued again. The plan is kept in `jobs.json` there, where
+`era5_cds.fetch` finds the files (step 2).
 """
 
 import argparse
@@ -17,8 +18,7 @@ from shared import (
     GRIB_DIR,
     START,
     download_quarters,
-    make_blocks,
-    make_era5_jobs,
+    make_blocks_to_download,
 )
 
 GRIB_BYTES_PER_FIELD = 1600  # measured on the NL area (25 x 29 points, 16-bit packing)
@@ -29,16 +29,18 @@ if __name__ == "__main__":
     parser.add_argument("--max-active", type=int, default=8, help="requests queued or running at a time")
     args = parser.parse_args()
 
-    jobs = make_era5_jobs()
     quarters = download_quarters()
+    blocks = make_blocks_to_download()
+    jobs = era5_cds.make_jobs(blocks, AREA)
     n_fields = sum(
         len(r["variable"]) * len(r.get("pressure_level", [0])) * len(r["month"]) * 31 * len(r["time"])
         for _, r in jobs.values()
     )  # upper bound: 31 days per month
     n_done = sum((GRIB_DIR / name).exists() for name in jobs)
-    print(f"{START} .. {END}: {len(quarters)} quarters, {len(jobs)} CDS requests, {n_done} downloaded already")
+    print(f"{START} .. {END}: {len(quarters)} quarters, {len(quarters) - len(blocks)} of them in the ERA5 store")
+    print(f"To do: {len(blocks)} quarters, {len(jobs)} CDS requests, {n_done} downloaded already")
     print(f"Order: {', '.join(quarters[:8])}, ...")
-    print(f"Size to download: ~{n_fields * GRIB_BYTES_PER_FIELD / 1e9:.0f} GB (GRIB, {n_fields / 1e6:.1f} M fields)")
+    print(f"Size of these requests: ~{n_fields * GRIB_BYTES_PER_FIELD / 1e9:.0f} GB (GRIB, {n_fields / 1e6:.1f} M fields)")
     if args.download:
-        era5_cds.download(make_blocks(), AREA, GRIB_DIR, max_active=args.max_active)
+        era5_cds.download(blocks, AREA, GRIB_DIR, max_active=args.max_active)
         print("Done.")
