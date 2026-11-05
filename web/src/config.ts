@@ -1,5 +1,7 @@
 // App settings (public/config.json): presentation only, the data describe themselves (docs/DATA_FORMAT.md).
 
+import { BASE } from "./router";
+
 export interface VarConfig {
   label?: string;
   units?: string;
@@ -36,11 +38,12 @@ const DEFAULTS: Config = {
 };
 
 export async function loadConfig(): Promise<Config> {
-  const r = await fetch("config.json", { cache: "no-cache" });
+  const r = await fetch(`${BASE}config.json`, { cache: "no-cache" });
   const user = r.ok ? ((await r.json()) as Partial<Config>) : {};
   const config = { ...DEFAULTS, ...user };
-  // URLs relative to the page
-  config.dataUrl = new URL(config.dataUrl.endsWith("/") ? config.dataUrl : `${config.dataUrl}/`, location.href).href;
-  config.basemapUrl = new URL(config.basemapUrl.endsWith("/") ? config.basemapUrl : `${config.basemapUrl}/`, location.href).href;
+  // URLs relative to where the app is served, whatever the path of the page
+  const base = new URL(BASE, location.origin);
+  config.dataUrl = new URL(config.dataUrl.endsWith("/") ? config.dataUrl : `${config.dataUrl}/`, base).href;
+  config.basemapUrl = new URL(config.basemapUrl.endsWith("/") ? config.basemapUrl : `${config.basemapUrl}/`, base).href;
   return config;
 }

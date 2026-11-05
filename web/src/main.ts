@@ -5,11 +5,12 @@ import { Climatology, Cycle, type Dataset, latestCycle, loadIndex, nearestIndex 
 import { Downloads, fmtBytes } from "./download";
 import { climOf, fmtCycle, Labels } from "./labels";
 import { currentHour, loading, PANELS, Renderer, TH_HINT } from "./render";
-import { type App, type HashState, type Mode, parseHash, parseLog, resolve, type State, Store, toHash } from "./state";
+import { BASE, type Mode, parseLog, parseUrl, toUrl, type ViewRequest, viewLink } from "./router";
+import { type App, resolve, type State, Store } from "./state";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 /** The keys of `h` that are set (so that spreading it does not clear others). */
-const defined = (h: HashState): HashState => Object.fromEntries(Object.entries(h).filter(([, v]) => v !== undefined));
+const defined = (h: ViewRequest): ViewRequest => Object.fromEntries(Object.entries(h).filter(([, v]) => v !== undefined));
 const SPEEDS: [number, string][] = [[2, "0.5×"], [1, "1×"], [0.5, "2×"], [0.25, "4×"]]; // interval factor, label
 const DISCLAIMER_KEY = "otprof-live.disclaimer"; // localStorage: "closed" once the banner was collapsed
 const INDEX_POLL_MS = 10 * 60 * 1000; // new forecast runs: checked every 10 min
@@ -86,14 +87,16 @@ async function main() {
   setupDisclaimer();
   const index = await loadIndex(config.dataUrl);
   const climUrl = index.climatology ? new URL(index.climatology, config.dataUrl).href : undefined;
-  const hash = parseHash(location.hash);
+  // Links from before the paths (#mode=clim&..) go to the landing page
+  if (location.hash) history.replaceState(null, "", BASE);
+  const asked = parseUrl();
 
   // The forecast cycle and the climatology are kept once loaded; `app.data` is the one shown
   let cycle: Cycle | undefined;
   const openCycle = async (id: string) => (cycle = await Cycle.open(config.dataUrl, id));
   let climLoad: Promise<Climatology> | undefined;
   const openClim = () => (climLoad ??= Climatology.open(climUrl!).then((c) => (app.clim = c)));
-  const firstCycle = hash.cycle && index.cycles.includes(hash.cycle) ? hash.cycle : latestCycle(index);
+  const firstCycle = asked.run && index.cycles.includes(asked.run) ? asked.run : latestCycle(index);
   /** Lead hours shown when the forecast was left for the climatology */
   let liveLeadHours: number | undefined;
 
@@ -112,19 +115,19 @@ async function main() {
     };
   };
   const app = { config, index, firstStep: 0 } as App;
-  app.data = await loading<Dataset>(PANELS, hash.mode === "clim" && climUrl ? openClim().then((c) => c.forPeriod(hash.period ?? "global")) : openCycle(firstCycle)); // fmt: skip
+  app.data = await loading<Dataset>(PANELS, asked.mode === "climatology" && climUrl ? openClim().then((c) => c.forPeriod(asked.period ?? "global")) : openCycle(firstCycle)); // fmt: skip
   const labels = new Labels(app);
-  const logOf = (h: HashState) => (h.log === undefined ? undefined : parseLog(h.log, Object.keys(labels.logDefault)));
+  const logOf = (h: ViewRequest) => (h.log === undefined ? undefined : parseLog(h.log, Object.keys(labels.logDefault)));
   const store = new Store({
-    mode: climOf(app.data) ? "clim" : "live",
+    mode: climOf(app.data) ? "climatology" : "forecast",
     period: climOf(app.data)?.period ?? "global",
     cycle: firstCycle,
-    ...resolve(hash, app.data, fallback(app.data)),
+    ...resolve(asked, app.data, fallback(app.data)),
     playing: false,
     diurnalKind: "box",
     heightScale: config.heightScale,
     colourPerHeight: config.colourPerHeight,
-    logValues: logOf(hash) ?? labels.logDefault,
+    logValues: logOf(asked) ?? labels.logDefault,
   });
   app.store = store;
   const st = () => store.state;
@@ -136,7 +139,7 @@ async function main() {
     app.firstStep = k < 0 || (explicit && step < k) ? 0 : k;
     return Math.max(step, app.firstStep);
   };
-  store.state.step = limitSteps(st().step, hash.leadHours !== undefined);
+  store.state.step = limitSteps(st().step, asked.leadHours !== undefined);
 
   const render = new Renderer(app, labels);
   const downloads = new Downloads(store);
@@ -233,7 +236,19 @@ async function main() {
     }, config.playIntervalMs * SPEEDS[speedIndex][0]);
   }
 
-  const syncUrl = () => history.replaceState(null, "", toHash(st(), app.data, labels.logDefault));
+  /** The URL follows the view. Another page or kind of data is a new history entry, so that the back button returns to
+   * it; moving through the times, heights and places is not. `replace`: never a new entry (the URL asked for the view). */
+  let following = false;
+  const syncUrl = (replace = following) => {
+    const { zi, cell } = fallback(app.data);
+    const url = new URL(toUrl(st(), app.data, { zi, cell, log: labels.logDefault }), location.origin);
+    const page = (u: { pathname: string; search: string }) => {
+      const p = new URLSearchParams(u.search);
+      return [u.pathname, p.get("period"), p.get("run")].join();
+    };
+    if (replace || page(url) === page(location)) history.replaceState(null, "", url);
+    else history.pushState(null, "", url);
+  };
   store.subscribe((_, changed) => {
     render.update(changed);
     if (changed.has("playing")) schedulePlay();
@@ -242,7 +257,7 @@ async function main() {
 
   // Switching cycles or between forecast and climatology keeps the physical view (lead hours or month, height,
   // location)
-  const physical = (): HashState => {
+  const physical = (): ViewRequest => {
     const s = st();
     const { data } = app;
     return defined({
@@ -256,7 +271,7 @@ async function main() {
     });
   };
   /** Show `next` at the physical view `h`; `explicit`: `h` comes from the URL (it may ask for past times). */
-  async function switchTo(next: Dataset, h: HashState, explicit = false) {
+  async function switchTo(next: Dataset, h: ViewRequest, explicit = false) {
     store.set({ playing: false });
     app.data = next;
     labels.clearCmaps();
@@ -264,31 +279,29 @@ async function main() {
     await render.mapView.setData(next);
     const r = resolve(h, next, fallback(next));
     r.step = limitSteps(r.step, explicit && (h.leadHours !== undefined || h.month !== undefined));
-    store.state = { ...st(), mode: climOf(next) ? "clim" : "live", period: climOf(next)?.period ?? st().period, ...(next instanceof Cycle && { cycle: next.id }), ...r, logValues: logOf(h) ?? st().logValues }; // fmt: skip
+    store.state = { ...st(), mode: climOf(next) ? "climatology" : "forecast", period: climOf(next)?.period ?? st().period, ...(next instanceof Cycle && { cycle: next.id }), ...r, logValues: logOf(h) ?? st().logValues }; // fmt: skip
     await next.loadStep(r.step);
     render.all();
-    syncUrl();
+    syncUrl(explicit);
     void loading(["th"], next.loadAll(r.step, app.firstStep));
   }
-  async function switchCycle(id: string, h: HashState, explicit = false) {
-    await loading(PANELS, openCycle(id).then((next) => switchTo(next, h, explicit)));
+  async function switchCycle(id: string, h: ViewRequest) {
+    await loading(PANELS, openCycle(id).then((next) => switchTo(next, h)));
   }
   /** The climatology opens at the month of the forecast time shown; the forecast at the lead time it was left at. */
-  async function switchMode(mode: Mode, extra: HashState = {}, explicit = false) {
-    if (mode === st().mode || (mode === "clim" && !climUrl)) return;
-    await loading(PANELS, switchModeTo(mode, extra, explicit));
+  async function switchMode(mode: Mode) {
+    if (mode === st().mode || (mode === "climatology" && !climUrl)) return;
+    await loading(PANELS, switchModeTo(mode));
   }
-  async function switchModeTo(mode: Mode, extra: HashState, explicit: boolean) {
+  async function switchModeTo(mode: Mode) {
     const h = physical();
-    if (mode === "clim") {
+    if (mode === "climatology") {
       liveLeadHours = h.leadHours;
       if (app.data instanceof Cycle) h.month = app.data.times[st().step].getUTCMonth() + 1;
-      const c = await (await openClim()).forPeriod(extra.period ?? st().period);
-      return switchTo(c, { ...h, ...defined(extra) }, explicit);
+      return switchTo(await (await openClim()).forPeriod(st().period), h);
     }
-    const id = extra.cycle && app.index.cycles.includes(extra.cycle) ? extra.cycle : st().cycle;
-    const next = cycle?.id === id ? cycle : await openCycle(id);
-    await switchTo(next, { ...h, leadHours: liveLeadHours, ...defined(extra) }, explicit);
+    const next = cycle?.id === st().cycle ? cycle : await openCycle(st().cycle);
+    await switchTo(next, { ...h, leadHours: liveLeadHours });
   }
   /** Global, day or night: the climatology of that period, the rest of the view stays. The buttons follow at once, the
    * last click wins. */
@@ -307,23 +320,39 @@ async function main() {
     }
   }
 
-  // Links in the notes and edits of the URL
-  addEventListener("hashchange", () => {
-    const h = parseHash(location.hash);
-    if (h.mode && h.mode !== st().mode) return void switchMode(h.mode, h, true);
-    const { data } = app;
-    if (data instanceof Cycle && h.cycle && h.cycle !== data.id && app.index.cycles.includes(h.cycle)) return void switchCycle(h.cycle, { ...physical(), ...defined(h) }, true); // fmt: skip
-    if (h.period && h.period !== st().period && climOf(data)?.hasPeriod(h.period)) return void switchPeriod(h.period, { ...physical(), ...defined(h) }); // fmt: skip
+  /** Show what the URL asks for: back and forward, links in the notes. What it leaves out is the default. */
+  async function followUrl() {
+    const h = parseUrl();
+    const run = h.run && app.index.cycles.includes(h.run) ? h.run : latestCycle(app.index);
+    let next: Dataset;
+    if (h.mode === "climatology" && climUrl) next = await (await openClim()).forPeriod(h.period ?? "global");
+    else next = cycle?.id === run ? cycle : await loading(PANELS, openCycle(run));
+    store.state.logValues = logOf(h) ?? labels.logDefault;
+    if (next !== app.data) return loading(PANELS, switchTo(next, h, true));
     const before = app.firstStep;
-    const r = resolve(h, data, { ...st() });
+    const r = resolve(h, next, fallback(next));
     r.step = limitSteps(r.step, h.leadHours !== undefined);
-    const log = logOf(h);
-    store.set({ ...r, playing: false, ...(log && { logValues: log }) });
-    if (app.firstStep !== before) {
-      render.timeHeight();
-      render.controls();
-      void data.loadAll(r.step, app.firstStep);
-    }
+    following = true;
+    store.set({ ...r, playing: false });
+    following = false;
+    render.all();
+    syncUrl(true);
+    if (app.firstStep !== before) void next.loadAll(r.step, app.firstStep);
+  }
+  // Links from before the paths (#mode=clim&..) go to the landing page, also while the page is open (a change of the hash
+  // is a popstate too)
+  addEventListener("popstate", () => {
+    if (location.hash) history.replaceState(null, "", BASE);
+    void followUrl();
+  });
+  // Links to views in the notes: without loading the page again
+  document.addEventListener("click", (e) => {
+    const a = (e.target as Element).closest?.("a[href]");
+    const target = a && viewLink(a.getAttribute("href")!);
+    if (!target || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    e.preventDefault();
+    history.pushState(null, "", target);
+    void followUrl();
   });
 
   addEventListener("keydown", (e) => {
@@ -357,7 +386,7 @@ async function main() {
   await render.mapView.setData(app.data);
   await loading(PANELS, app.data.loadStep(st().step));
   render.all();
-  syncUrl();
+  syncUrl(true);
   $("th-hover").textContent = TH_HINT;
   void loading(["th"], app.data.loadAll(st().step, app.firstStep));
   // The climatology behind the forecast profile

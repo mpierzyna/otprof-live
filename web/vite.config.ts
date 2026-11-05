@@ -29,7 +29,8 @@ function devData(): Plugin {
 // Texts of the app (content/*.md, see content/README.md) rendered into index.html at build time:
 // <!--content:NAME--> the markdown of content/NAME.md, <!--content:NAME:inline--> as inline markdown (title),
 // <!--content:NAME:text--> as plain text (<title>), <!--content:NAME:heading--> its first heading (inline) and
-// <!--content:NAME:body--> the rest. Links not starting with "#" (those set the view) open in a new tab.
+// <!--content:NAME:body--> the rest. Links not starting with /forecast or /climatology (those set the view) open in a new
+// tab.
 const CONTENT = resolve(__dirname, "content");
 
 // LaTeX in the texts: $...$ inline, $$...$$ displayed, rendered by MathJax to SVG at build time (no fonts or scripts in
@@ -58,7 +59,7 @@ function math(): MarkedExtension {
 const marked = new Marked(math());
 
 function content(): Plugin {
-  const external = (html: string) => html.replace(/<a href="(?!#)/g, '<a target="_blank" rel="noopener noreferrer" href="');
+  const external = (html: string) => html.replace(/<a href="(?!\/(?:forecast|climatology)\b)/g, '<a target="_blank" rel="noopener noreferrer" href="');
   const parse = (tokens: Token[]) => external(marked.parser(tokens));
   const inline = (md: string) => external(marked.parseInline(md.trim(), { async: false }));
   const render = (name: string, part = "") => {
@@ -83,10 +84,11 @@ function content(): Plugin {
   };
 }
 
-// Relative asset paths: the built app (dist/) works from any directory of the web server.
+// The app has paths of its own (/forecast/.., /climatology/..), so its files have absolute URLs: it is served from the root
+// of the web server, or from OTPROF_BASE (e.g. /otprof/, then adjust the routes in nginx.conf too).
 // Dev server on another interface (e.g. Tailscale):  npm run dev -- --host <ip>
 export default defineConfig({
-  base: "./",
+  base: process.env.OTPROF_BASE ?? "/",
   build: { chunkSizeWarningLimit: 1500 },
   server: { port: 5173, strictPort: true },
   preview: { port: 4173, strictPort: true },

@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title><!--content:title:text--></title>
     <link rel="icon" href="data:," />
-    <script src="theme.js"></script>
+    <script src="/theme.js"></script>
   </head>
   <body>
     <header class="page-header">
-      <a id="home" class="brand" href="." title="Start over: newest forecast from now on, default view">
+      <a id="home" class="brand" href="%BASE_URL%" title="Start over: newest forecast from now on, default view">
         <h1 id="title"><!--content:title:inline--></h1>
       </a>
       <p id="subtitle"><!--content:subtitle:inline--></p>
@@ -27,8 +27,8 @@
     </header>
     <div class="tabbar">
       <nav id="mode-tabs" class="tabs" role="tablist" aria-label="View" hidden>
-        <button type="button" role="tab" data-mode="live">Live forecast</button>
-        <button type="button" role="tab" data-mode="clim">Climatology</button>
+        <button type="button" role="tab" data-mode="forecast">Live forecast</button>
+        <button type="button" role="tab" data-mode="climatology">Climatology</button>
       </nav>
       <div id="progress" class="progress" role="progressbar" aria-label="Loading" hidden><div></div></div>
     </div>

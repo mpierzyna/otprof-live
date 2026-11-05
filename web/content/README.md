@@ -1,8 +1,8 @@
 # Texts of the app
 
 Markdown, rendered into `index.html` when the app is built (`vite.config.ts`, plugin `content`): edit, then push and
-deploy. `npm run dev` reloads on every change. Links starting with `#` set the view (e.g. `#lat=52&lon=5&z=1000&t=12`),
-other links open in a new tab. LaTeX: `$C_n^2$` inline, `$$...$$` displayed (MathJax, rendered at build time); a
+deploy. `npm run dev` reloads on every change. Links starting with `/forecast` or `/climatology` set the view (e.g.
+`/forecast/r0?lat=52&lon=5&z=1000&t=12`), other links open in a new tab. LaTeX: `$C_n^2$` inline, `$$...$$` displayed (MathJax, rendered at build time); a
 literal dollar sign: `\$`.
 
 | file | shown |

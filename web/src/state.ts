@@ -1,11 +1,8 @@
-// Shared view state of all panels, mirrored in the URL hash: forecast #cycle=..&var=..&t=<lead h>&z=<m>&lat=..&lon=..,
-// climatology #mode=clim&var=..&month=<1-12>&stat=..&period=<day|night>&z=<m>&lat=..&lon=..; log=<names>: the log₁₀ variables shown as
-// log₁₀, the others linearly (only if not the defaults; log=0: all linearly, log=1: all as log₁₀)
+// Shared view state of all panels, mirrored in the URL (router.ts).
 
 import type { Config } from "./config";
 import { Climatology, type Cycle, type Dataset, type Index, nearestIndex } from "./data";
-
-export type Mode = "live" | "clim";
+import type { Mode, ViewRequest } from "./router";
 
 export interface State {
   mode: Mode;
@@ -59,79 +56,23 @@ export interface App {
   firstStep: number; // first step of the time axis
 }
 
-export interface HashState {
-  mode?: Mode;
-  cycle?: string;
-  variable?: string;
-  leadHours?: number;
-  month?: number; // 1 to 12
-  stat?: string;
-  period?: string;
-  z?: number;
-  lat?: number;
-  lon?: number;
-  log?: string; // "0", "1" or the names of the log₁₀ variables shown as log₁₀, comma-separated
-}
-
-export function parseHash(hash: string): HashState {
-  const p = new URLSearchParams(hash.replace(/^#/, ""));
-  const num = (k: string) => (p.has(k) && Number.isFinite(+p.get(k)!) ? +p.get(k)! : undefined);
-  return {
-    mode: p.get("mode") === "clim" ? "clim" : p.has("mode") || p.has("cycle") ? "live" : undefined,
-    cycle: p.get("cycle") ?? undefined,
-    variable: p.get("var") ?? undefined,
-    leadHours: num("t"),
-    month: num("month"),
-    stat: p.get("stat") ?? undefined,
-    period: p.get("period") ?? undefined,
-    z: num("z"),
-    lat: num("lat"),
-    lon: num("lon"),
-    log: p.get("log") ?? undefined,
-  };
-}
-
-/** The log₁₀ switches of the variables `names` from the hash value `log` ("0", "1" or the names shown as log₁₀) */
-export function parseLog(log: string, names: string[]): Record<string, boolean> {
-  const on = log.split(",");
-  return Object.fromEntries(names.map((n) => [n, log === "1" || on.includes(n)]));
-}
-
-/** The view as URL hash; `logDefault`: the log₁₀ switches at the start (`log` only if they differ) */
-export function toHash(s: State, cycle: Dataset, logDefault: Record<string, boolean>): string {
-  const p =
-    cycle instanceof Climatology
-      ? new URLSearchParams({ mode: "clim", var: s.variable, month: String(cycle.meta.months[s.step]), stat: s.stat })
-      : new URLSearchParams({ cycle: s.cycle, var: s.variable, t: String((cycle as Cycle).meta.lead_hours[s.step]) }); // fmt: skip
-  if (cycle instanceof Climatology && s.period !== "global") p.set("period", s.period);
-  const names = Object.keys(logDefault);
-  if (names.some((n) => (s.logValues[n] ?? logDefault[n]) !== logDefault[n]))
-    p.set("log", names.filter((n) => s.logValues[n] ?? logDefault[n]).join(","));
-  if (cycle.nz) p.set("z", String(Math.round(cycle.z[s.zi])));
-  if (s.cell >= 0) {
-    p.set("lat", cycle.lat[Math.floor(s.cell / cycle.nlon)].toFixed(2));
-    p.set("lon", cycle.lon[s.cell % cycle.nlon].toFixed(2));
-  }
-  return `#${String(p).replace(/%2C/g, ",")}`; // commas are fine in a fragment
-}
-
-/** Indices in `cycle` for a hash state (physical values snap to the nearest lead time or month, height and cell). */
+/** Indices in `data` for a view (physical values snap to the nearest lead time or month, height and cell). */
 export function resolve(
-  h: HashState,
-  cycle: Dataset,
+  h: ViewRequest,
+  data: Dataset,
   fallback: { variable: string; step: number; zi: number; cell: number; stat: string },
 ) {
-  const names = Object.keys(cycle.variables);
-  const cell = h.lat !== undefined && h.lon !== undefined ? cycle.nearestCell(h.lat, h.lon) : -1;
-  const clim = cycle instanceof Climatology ? cycle : undefined;
+  const names = Object.keys(data.variables);
+  const cell = h.lat !== undefined && h.lon !== undefined ? data.nearestCell(h.lat, h.lon) : -1;
+  const clim = data instanceof Climatology ? data : undefined;
   const step = clim
     ? h.month !== undefined ? nearestIndex(clim.meta.months, h.month) : fallback.step
-    : h.leadHours !== undefined ? nearestIndex((cycle as Cycle).meta.lead_hours, h.leadHours) : fallback.step; // fmt: skip
+    : h.leadHours !== undefined ? nearestIndex((data as Cycle).meta.lead_hours, h.leadHours) : fallback.step; // fmt: skip
   return {
     variable: h.variable && names.includes(h.variable) ? h.variable : fallback.variable,
     step,
     stat: h.stat && clim?.meta.stats.includes(h.stat) ? h.stat : fallback.stat,
-    zi: h.z !== undefined && cycle.nz ? nearestIndex(cycle.z, h.z) : fallback.zi,
+    zi: h.z !== undefined && data.nz ? nearestIndex(data.z, h.z) : fallback.zi,
     cell: cell >= 0 ? cell : fallback.cell,
   };
 }

@@ -1,10 +1,11 @@
-// Annotations from markdown files (sanitised). Links like [text](#t=12&z=100&lat=52&lon=5) set the view.
+// Annotations from markdown files (sanitised). Links like [text](/forecast/r0?t=12&z=100&lat=52&lon=5) set the view.
 
 import DOMPurify from "dompurify";
 import { marked } from "marked";
+import { viewLink } from "./router";
 
 DOMPurify.addHook("afterSanitizeAttributes", (node) => {
-  if (node.tagName === "A" && !node.getAttribute("href")?.startsWith("#")) {
+  if (node.tagName === "A" && !viewLink(node.getAttribute("href") ?? "")) {
     node.setAttribute("target", "_blank");
     node.setAttribute("rel", "noopener noreferrer");
   }
