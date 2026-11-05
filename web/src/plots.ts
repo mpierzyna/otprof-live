@@ -182,7 +182,8 @@ export class TimeHeightView {
   private canvas = document.createElement("canvas");
   private svgHost = document.createElement("div");
   private onPick: (step: number, zi?: number) => void;
-  private onHover: (text: string) => void;
+  private hint: string; // in the tooltip, for a mouse
+  private tip = document.createElement("div");
   private m = { top: 8, right: 16, bottom: 26, left: 52 };
   private gap = 20;
   private x = scaleUtc();
@@ -191,13 +192,36 @@ export class TimeHeightView {
   private ph = 0;
   private showZ = true;
 
-  constructor(el: HTMLElement, onPick: (step: number, zi?: number) => void, onHover: (text: string) => void) {
+  constructor(el: HTMLElement, onPick: (step: number, zi?: number) => void, hint: string) {
     this.el = el;
     this.onPick = onPick;
-    this.onHover = onHover;
+    this.hint = hint;
     el.classList.add("th");
     this.canvas.className = "th-canvas";
-    el.append(this.canvas, this.svgHost);
+    this.tip.className = "tooltip plot-tooltip";
+    this.tip.hidden = true;
+    el.append(this.canvas, this.svgHost, this.tip);
+  }
+
+  /** The values at the pointer, next to it (above a finger), within the plot. */
+  private showTip(ev: PointerEvent, lines: string[]) {
+    const tip = this.tip;
+    tip.replaceChildren(...lines.map((text, i) => Object.assign(document.createElement("div"), { textContent: text, className: i ? "" : "tip-head" }))); // fmt: skip
+    if (ev.pointerType === "mouse") tip.append(Object.assign(document.createElement("div"), { textContent: this.hint, className: "tip-hint" })); // fmt: skip
+    tip.hidden = false;
+    const r = this.el.getBoundingClientRect();
+    const [px, py] = [ev.clientX - r.left, ev.clientY - r.top];
+    const [w, h] = [tip.offsetWidth, tip.offsetHeight];
+    const gap = 14;
+    // A finger: above it, else beside it, clear of the finger
+    const mouse = ev.pointerType === "mouse";
+    const above = !mouse && py - h - 2 * gap >= 0;
+    const side = mouse || above ? gap : 3 * gap;
+    let left = px + side > r.width - w ? px - side - w : px + side;
+    let top = mouse ? py + gap : above ? py - h - 2 * gap : py - h / 2;
+    left = Math.max(0, Math.min(left, r.width - w));
+    top = Math.max(0, Math.min(top, r.height - h));
+    tip.style.transform = `translate(${left}px, ${top}px)`;
   }
 
   draw(o: TimeHeightOptions) {
@@ -369,17 +393,25 @@ export class TimeHeightView {
       }
       const t = o.stepLabel(step);
       if (zi === undefined) {
-        // In a strip of box plots: the box of the step
+        // In a strip: the box of the step, or the value of the series
         const c = o.columns[Math.floor((pointer(ev, g.node())[1] - ph) / (stripH + this.gap))];
-        const b = c?.boxes;
-        if (!b) return this.onHover(t);
-        return this.onHover(`${t}, ${c.label}: median ${c.fmt(b.median[step])}, mean ${c.fmt(b.mean[step])}, ` +
-          `25–75 % ${c.fmt(b.p25[step])} to ${c.fmt(b.p75[step])}, 5–95 % ${c.fmt(b.p5[step])} to ${c.fmt(b.p95[step])}`); // fmt: skip
+        if (!c) return void (this.tip.hidden = true);
+        const b = c.boxes;
+        if (!b) {
+          const v = steps.series(c.name, cell, stat)[step];
+          return this.showTip(ev, [t, `${c.label}: ${Number.isNaN(v) ? "–" : c.fmt(c.tf ? c.tf(v) : v)}`]);
+        }
+        return this.showTip(ev, [
+          `${t} · ${c.label}`,
+          `median ${c.fmt(b.median[step])} · mean ${c.fmt(b.mean[step])}`,
+          `25–75 %: ${c.fmt(b.p25[step])} to ${c.fmt(b.p75[step])}`,
+          `5–95 %: ${c.fmt(b.p5[step])} to ${c.fmt(b.p95[step])}`,
+        ]);
       }
       const p = steps.profile(name, step, cell, stat);
-      this.onHover(`${t}, ${formatHeight(steps.z[zi])}: ${p && !Number.isNaN(p[zi]) ? o.fmt(tf(p[zi])) : "–"}`);
+      this.showTip(ev, [`${t} · ${formatHeight(steps.z[zi])}`, p && !Number.isNaN(p[zi]) ? o.fmt(tf(p[zi])) : "–"]);
     });
-    hit.on("pointerleave", () => (this.onHover(""), follow(-1)));
+    hit.on("pointerleave", () => ((this.tip.hidden = true), follow(-1)));
   }
 
   setCursor(steps: Steps, step: number, zi: number) {

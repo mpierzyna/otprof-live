@@ -4,7 +4,7 @@ import { loadConfig } from "./config";
 import { Climatology, Cycle, type Dataset, latestCycle, loadIndex, nearestIndex } from "./data";
 import { Downloads, fmtBytes, profileCsv } from "./download";
 import { climOf, fmtCycle, fmtMonth, Labels } from "./labels";
-import { currentHour, loading, PANELS, Renderer, TH_HINT } from "./render";
+import { currentHour, loading, PANELS, Renderer } from "./render";
 import { BASE, type Mode, parseLog, parseUrl, toUrl, type ViewRequest, viewLink } from "./router";
 import { type App, resolve, type State, Store } from "./state";
 
@@ -81,10 +81,38 @@ function setupDisclaimer() {
   el.hidden = false;
 }
 
+/** The controls stay below the tab bar while scrolling, on a phone only from the variable on (style.css). Follows the
+ * heights of the bar and the controls, marks when the controls are stuck. */
+function setupStickyControls() {
+  const bar = document.querySelector<HTMLElement>(".tabbar")!;
+  const controls = document.querySelector<HTMLElement>(".controls")!;
+  const first = document.querySelector<HTMLElement>(".var-group")!;
+  const phone = matchMedia("(max-width: 600px)");
+  let observer: IntersectionObserver | undefined;
+  const update = () => {
+    const away = phone.matches ? first.getBoundingClientRect().top - controls.getBoundingClientRect().top - 8 : 0;
+    const height = bar.offsetHeight;
+    document.documentElement.style.setProperty("--tabbar-height", `${height}px`);
+    document.documentElement.style.setProperty("--controls-away", `${away}px`);
+    document.documentElement.style.setProperty("--controls-shown", `${controls.offsetHeight - away}px`);
+    observer?.disconnect();
+    observer = new IntersectionObserver(([e]) => controls.classList.toggle("stuck", e.intersectionRatio < 1), {
+      threshold: 1,
+      rootMargin: `${-height - 1}px 0px 0px 0px`,
+    });
+    observer.observe(controls);
+  };
+  const sizes = new ResizeObserver(update);
+  sizes.observe(bar);
+  sizes.observe(controls);
+  phone.addEventListener("change", update);
+}
+
 async function main() {
   setupTheme();
   const config = await loadConfig();
   setupDisclaimer();
+  setupStickyControls();
   const index = await loadIndex(config.dataUrl);
   const climUrl = index.climatology ? new URL(index.climatology, config.dataUrl).href : undefined;
   // Links from before the paths (#mode=clim&..) go to the landing page
@@ -191,7 +219,7 @@ async function main() {
     const c = climOf(app.data);
     if (!c?.meta.downloads) return;
     downloads.ask(
-      "The climatology of the whole domain as NetCDF: the monthly statistics (global, day, night) and the diurnal cycle per month, of Cₙ², r₀ and σᵢ².",
+      "The climatology of the whole domain as NetCDF: the monthly statistics (all hours, day, night) and the diurnal cycle per month, of Cₙ², r₀ and σᵢ².",
       c.meta.downloads.map(({ label, file, bytes }) => ({ url: new URL(file, c.base).href, file, label: `${label} (${fmtBytes(bytes)})` })), // fmt: skip
     );
   });
@@ -400,7 +428,6 @@ async function main() {
   await loading(PANELS, app.data.loadStep(st().step));
   render.all();
   syncUrl(true);
-  $("th-hover").textContent = TH_HINT;
   void loading(["th"], app.data.loadAll(st().step, app.firstStep));
   // The climatology behind the forecast profile
   if (climUrl && !app.clim) void loading(["profile"], openClim()).then(() => app.data instanceof Cycle && render.profile());

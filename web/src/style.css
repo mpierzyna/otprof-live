@@ -202,45 +202,41 @@ input {
   transition: width 200ms linear;
 }
 
-/* Layout */
+/* Layout: the controls live outside the panels' grid, a sticky grid item would only stick within its own row */
 .layout {
   display: grid;
   gap: var(--gap);
   padding: 20px 32px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "disclaimer" "workspace" "notes";
+}
+.workspace {
+  grid-area: workspace;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+.panels {
+  display: grid;
+  gap: var(--gap);
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
   grid-template-areas:
-    "disclaimer disclaimer"
-    "controls controls"
     "map profile"
-    "th th"
-    "notes notes";
+    "th th";
 }
-.layout.clim {
+.layout.clim .panels {
   grid-template-areas:
-    "disclaimer disclaimer"
-    "controls controls"
     "map profile"
     "th th"
-    "diurnal diurnal"
-    "notes notes";
+    "diurnal diurnal";
 }
 @media (min-width: 1700px) {
   .layout {
-    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) minmax(300px, 1.1fr);
+    grid-template-columns: minmax(0, 5fr) minmax(300px, 1.1fr);
     grid-template-areas:
-      "disclaimer disclaimer disclaimer"
-      "controls controls notes"
-      "map profile notes"
-      "th th notes";
+      "disclaimer disclaimer"
+      "workspace notes";
     align-items: start;
-  }
-  .layout.clim {
-    grid-template-areas:
-      "disclaimer disclaimer disclaimer"
-      "controls controls notes"
-      "map profile notes"
-      "th th notes"
-      "diurnal diurnal notes";
   }
   .notes-panel {
     align-self: stretch;
@@ -260,12 +256,18 @@ input {
   .tabs {
     padding: 0 10px;
   }
-  .layout,
-  .layout.clim {
+  .layout {
     padding: 12px;
     gap: 12px;
+  }
+  .workspace {
+    gap: 12px;
+  }
+  .panels,
+  .layout.clim .panels {
+    gap: 12px;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "disclaimer" "controls" "map" "profile" "th" "diurnal" "notes";
+    grid-template-areas: "map" "profile" "th" "diurnal";
   }
 }
 
@@ -375,6 +377,7 @@ input {
 .map-panel {
   grid-area: map;
   position: relative;
+  isolation: isolate; /* MapLibre's overlays (z-index 99999): below the controls that stay on top */
   height: clamp(340px, 62vh, 760px);
   overflow: hidden;
 }
@@ -393,12 +396,61 @@ input {
   min-height: 0;
   padding: 4px 8px 0;
 }
+/* Stays below the tab bar while scrolling (--tabbar-height: set in main.ts) */
 .controls {
-  grid-area: controls;
+  position: sticky;
+  top: calc(var(--tabbar-height, 0px) - var(--controls-away, 0px));
+  z-index: 10;
   display: flex;
   flex-direction: column;
   gap: 12px;
   padding: 12px 16px;
+}
+/* What gets the keyboard focus or is scrolled to: not hidden below the tab bar and the controls */
+html {
+  scroll-padding-top: calc(var(--tabbar-height, 0px) + var(--controls-shown, 0px) + 8px);
+}
+.controls.stuck {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  box-shadow: 0 6px 16px rgb(0 0 0 / 0.14);
+}
+/* Too low a window (a phone on its side) for controls that stay */
+@media (max-height: 560px) {
+  html {
+    scroll-padding-top: calc(var(--tabbar-height, 0px) + 8px);
+  }
+  .controls {
+    position: static;
+  }
+  .controls.stuck {
+    border-radius: var(--radius);
+    box-shadow: none;
+  }
+}
+/* Phone: what is used less comes first and scrolls away under the tab bar (--controls-away: set in main.ts), so that only
+   the variable, the month or time and the period stay */
+@media (max-width: 600px) {
+  .controls-row:first-child {
+    display: contents;
+  }
+  #cycle-group,
+  #stat-group,
+  #clim-download {
+    order: -1;
+  }
+  #clim-download {
+    align-self: flex-start;
+  }
+  .controls-row:last-child .slider {
+    flex: 1 1 0;
+  }
+  #period {
+    flex: 1 0 100%;
+  }
+  #period button {
+    flex: 1;
+  }
 }
 .controls-row {
   display: flex;
@@ -1191,6 +1243,20 @@ button.filter-chip:disabled {
   white-space: nowrap;
 }
 
+/* Values at the pointer in the annual, forecast and diurnal plots */
+.th > .plot-tooltip {
+  position: absolute; /* not relative like the plot's other layers (.th > div) */
+  z-index: 4;
+  padding: 5px 8px;
+  line-height: 1.45;
+}
+.plot-tooltip .tip-head {
+  font-weight: 600;
+}
+.plot-tooltip .tip-hint {
+  margin-top: 2px;
+  opacity: 0.7;
+}
 .tooltip {
   position: absolute;
   left: 0;

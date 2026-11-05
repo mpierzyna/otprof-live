@@ -83,7 +83,7 @@ export class Labels {
   periodLabel = (c: Climatology) => {
     const p = c.meta.periods?.[c.period];
     if (!c.meta.periods) return "";
-    return p ? `${c.period}, ${format("02d")(p.utc_hour)} UTC` : "global, all hours";
+    return p ? `${c.period}, ${format("02d")(p.utc_hour)} UTC` : "all hours";
   };
   /** Statistic of the climatology shown for a variable (the median if it has not got the selected one). */
   statFor = (name: string): string | undefined => {

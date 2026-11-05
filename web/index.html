@@ -45,140 +45,142 @@
         <div id="disclaimer-text" class="markdown"><!--content:disclaimer:body--></div>
       </details>
 
-      <section class="card controls" aria-label="What, when and where">
-        <div class="controls-row">
-          <div class="var-group">
-            <div id="var-switch" class="segmented" role="group" aria-label="Variable"></div>
-            <label class="filter-chip" id="log-values-group">
-              <input id="log-values" type="checkbox" /> log₁₀
-            </label>
-          </div>
-          <div id="cycle-group" class="field run-field">
-            <label for="cycle-select">Forecast run</label>
-            <div class="run-row">
-              <div class="joined">
-                <select id="cycle-select"></select>
-                <button id="download" class="download-button" type="button" title="Download this forecast run as NetCDF" hidden>
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20h14v-2H5v2zm14-11h-4V3H9v6H5l7 7 7-7z" /></svg>
-                  <span id="download-label">nc</span>
+      <div class="workspace">
+        <section class="card controls" aria-label="What, when and where">
+          <div class="controls-row">
+            <div class="var-group">
+              <div id="var-switch" class="segmented" role="group" aria-label="Variable"></div>
+              <label class="filter-chip" id="log-values-group">
+                <input id="log-values" type="checkbox" /> log₁₀
+              </label>
+            </div>
+            <div id="cycle-group" class="field run-field">
+              <label for="cycle-select">Forecast run</label>
+              <div class="run-row">
+                <div class="joined">
+                  <select id="cycle-select"></select>
+                  <button id="download" class="download-button" type="button" title="Download this forecast run as NetCDF" hidden>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20h14v-2H5v2zm14-11h-4V3H9v6H5l7 7 7-7z" /></svg>
+                    <span id="download-label">nc</span>
+                  </button>
+                </div>
+                <button id="newer" class="newer-button" type="button" aria-label="Newer run" hidden>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M21 10.12h-6.78l2.74-2.82c-2.73-2.7-7.15-2.8-9.88-.1a6.88 6.88 0 0 0 0 9.8 7.02 7.02 0 0 0 9.88 0C18.32 15.65 19 14.08 19 12.1h2c0 1.98-.88 4.55-2.64 6.29-3.51 3.48-9.21 3.48-12.72 0-3.5-3.47-3.53-9.11-.02-12.58a8.98 8.98 0 0 1 12.65 0L21 3v7.12zM12.5 8v4.25l3.5 2.08-.72 1.21L11 13V8h1.5z" />
+                  </svg>
+                  <span class="newer-text">Newer run</span>
                 </button>
               </div>
-              <button id="newer" class="newer-button" type="button" aria-label="Newer run" hidden>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M21 10.12h-6.78l2.74-2.82c-2.73-2.7-7.15-2.8-9.88-.1a6.88 6.88 0 0 0 0 9.8 7.02 7.02 0 0 0 9.88 0C18.32 15.65 19 14.08 19 12.1h2c0 1.98-.88 4.55-2.64 6.29-3.51 3.48-9.21 3.48-12.72 0-3.5-3.47-3.53-9.11-.02-12.58a8.98 8.98 0 0 1 12.65 0L21 3v7.12zM12.5 8v4.25l3.5 2.08-.72 1.21L11 13V8h1.5z" />
-                </svg>
-                <span class="newer-text">Newer run</span>
-              </button>
             </div>
-          </div>
-          <div class="field" id="stat-group" title="Statistic of the climatology on the map, in the profile and over the year" hidden>
-            <span>Statistic</span>
-            <div id="stat" class="stat-groups" role="group" aria-label="Statistic"></div>
-          </div>
-          <button id="clim-download" class="download-button standalone" type="button" title="Download the climatology as NetCDF" hidden>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20h14v-2H5v2zm14-11h-4V3H9v6H5l7 7 7-7z" /></svg>
-            <span id="clim-download-label">nc</span>
-          </button>
-        </div>
-        <div class="controls-row">
-          <div class="player">
-            <button id="play" class="fab" type="button" aria-label="Play" title="Play / pause (space)">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path id="play-icon" d="M8 5v14l11-7z" /></svg>
+            <div class="field" id="stat-group" title="Statistic of the climatology on the map, in the profile and over the year" hidden>
+              <span>Statistic</span>
+              <div id="stat" class="stat-groups" role="group" aria-label="Statistic"></div>
+            </div>
+            <button id="clim-download" class="download-button standalone" type="button" title="Download the climatology as NetCDF" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20h14v-2H5v2zm14-11h-4V3H9v6H5l7 7 7-7z" /></svg>
+              <span id="clim-download-label">nc</span>
             </button>
-            <button id="speed" class="chip-button" type="button" title="Playback speed (click to change)">1×</button>
           </div>
-          <div class="slider">
-            <label for="time" id="time-name">Time</label>
-            <output id="time-label"></output>
-            <input id="time" type="range" min="0" max="0" step="1" value="0" />
-          </div>
-          <div id="period" class="segmented" role="group" aria-label="Hours of the monthly statistics" hidden>
-            <button type="button" data-period="global">Global</button>
-            <button type="button" data-period="day">Day</button>
-            <button type="button" data-period="night">Night</button>
-          </div>
-        </div>
-      </section>
-
-      <section class="card map-panel" aria-label="Map">
-        <div id="map"></div>
-        <div class="live-badge overlay" id="live-badge" title="The current hour of the newest forecast" hidden><span class="live-dot"></span>LIVE</div>
-        <div class="map-spinner overlay" id="map-spinner" role="status" aria-label="Loading" hidden><span class="spinner"></span></div>
-        <div class="height-overlay overlay" id="height-group" title="Height above ground (↑ ↓)">
-          <label for="height">Height</label>
-          <output id="height-label"></output>
-          <input id="height" type="range" min="0" max="0" step="1" value="0" aria-orientation="vertical" />
-        </div>
-        <div class="map-legend overlay">
-          <div id="colorbar" class="colorbar"></div>
-          <label class="switch small" id="colour-z-group" title="Colour scale per height: log₁₀ Cₙ² spans orders of magnitude over the column">
-            <input id="colour-z" type="checkbox" role="switch" /> Scale per height
-          </label>
-        </div>
-        <div id="map-tooltip" class="tooltip" hidden></div>
-      </section>
-
-      <section class="card profile-panel" aria-label="Vertical profile">
-        <div class="card-header">
-          <div class="card-title-row">
-            <div class="card-title">
-              <h2 id="profile-title">Profile</h2>
-              <span class="spinner" id="profile-spinner" role="status" aria-label="Loading" hidden></span>
-            </div>
-            <div class="title-actions">
-              <label class="filter-chip" title="Logarithmic height axis of the profile and the time-height plot">
-                <input id="log-height" type="checkbox" /> Log height
-              </label>
-              <button id="profile-csv" class="filter-chip" type="button" hidden>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20h14v-2H5v2zm14-11h-4V3H9v6H5l7 7 7-7z" /></svg>
-                csv
+          <div class="controls-row">
+            <div class="player">
+              <button id="play" class="fab" type="button" aria-label="Play" title="Play / pause (space)">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path id="play-icon" d="M8 5v14l11-7z" /></svg>
               </button>
+              <button id="speed" class="chip-button" type="button" title="Playback speed (click to change)">1×</button>
+            </div>
+            <div class="slider">
+              <label for="time" id="time-name">Time</label>
+              <output id="time-label"></output>
+              <input id="time" type="range" min="0" max="0" step="1" value="0" />
+            </div>
+            <div id="period" class="segmented" role="group" aria-label="Hours of the monthly statistics" hidden>
+              <button type="button" data-period="global">All hours</button>
+              <button type="button" data-period="day">Day</button>
+              <button type="button" data-period="night">Night</button>
             </div>
           </div>
-          <div id="profile-sub" class="subheader"></div>
-          <div id="column-values" class="chips"></div>
-        </div>
-        <div id="profile" class="plot-host"></div>
-        <div id="profile-legend" class="legend"></div>
-      </section>
+        </section>
 
-      <section class="card th-panel" aria-label="Time-height plot">
-        <div class="card-header">
-          <div class="card-title-row">
-            <div class="card-title">
-              <h2 id="th-title">Forecast at the selected point</h2>
-              <span class="spinner" id="th-spinner" role="status" aria-label="Loading" hidden></span>
+        <div class="panels">
+          <section class="card map-panel" aria-label="Map">
+            <div id="map"></div>
+            <div class="live-badge overlay" id="live-badge" title="The current hour of the newest forecast" hidden><span class="live-dot"></span>LIVE</div>
+            <div class="map-spinner overlay" id="map-spinner" role="status" aria-label="Loading" hidden><span class="spinner"></span></div>
+            <div class="height-overlay overlay" id="height-group" title="Height above ground (↑ ↓)">
+              <label for="height">Height</label>
+              <output id="height-label"></output>
+              <input id="height" type="range" min="0" max="0" step="1" value="0" aria-orientation="vertical" />
             </div>
-            <div id="th-kind" class="segmented small kind-switch" role="group" aria-label="Plot type" hidden>
-              <button type="button" data-kind="box">Box</button>
-              <button type="button" data-kind="violin">Violin</button>
+            <div class="map-legend overlay">
+              <div id="colorbar" class="colorbar"></div>
+              <label class="switch small" id="colour-z-group" title="Colour scale per height: log₁₀ Cₙ² spans orders of magnitude over the column">
+                <input id="colour-z" type="checkbox" role="switch" /> Scale per height
+              </label>
             </div>
-          </div>
-          <div id="th-hover" class="subheader">Hover for values, click to select a time and height</div>
-        </div>
-        <div id="timeheight"></div>
-        <div id="th-colorbar" class="colorbar"></div>
-        <div id="th-legend" class="legend"></div>
-      </section>
+            <div id="map-tooltip" class="tooltip" hidden></div>
+          </section>
 
-      <section id="diurnal-panel" class="card diurnal-panel" aria-label="Diurnal cycle" hidden>
-        <div class="card-header">
-          <div class="card-title-row">
-            <div class="card-title">
-              <h2 id="diurnal-title">Diurnal cycle</h2>
-              <span class="spinner" id="diurnal-spinner" role="status" aria-label="Loading" hidden></span>
+          <section class="card profile-panel" aria-label="Vertical profile">
+            <div class="card-header">
+              <div class="card-title-row">
+                <div class="card-title">
+                  <h2 id="profile-title">Profile</h2>
+                  <span class="spinner" id="profile-spinner" role="status" aria-label="Loading" hidden></span>
+                </div>
+                <div class="title-actions">
+                  <label class="filter-chip" title="Logarithmic height axis of the profile and the time-height plot">
+                    <input id="log-height" type="checkbox" /> Log height
+                  </label>
+                  <button id="profile-csv" class="filter-chip" type="button" hidden>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20h14v-2H5v2zm14-11h-4V3H9v6H5l7 7 7-7z" /></svg>
+                    csv
+                  </button>
+                </div>
+              </div>
+              <div id="profile-sub" class="subheader"></div>
+              <div id="column-values" class="chips"></div>
             </div>
-            <div id="diurnal-kind" class="segmented small kind-switch" role="group" aria-label="Plot type">
-              <button type="button" data-kind="box">Box</button>
-              <button type="button" data-kind="violin">Violin</button>
+            <div id="profile" class="plot-host"></div>
+            <div id="profile-legend" class="legend"></div>
+          </section>
+
+          <section class="card th-panel" aria-label="Time-height plot">
+            <div class="card-header">
+              <div class="card-title-row">
+                <div class="card-title">
+                  <h2 id="th-title">Forecast at the selected point</h2>
+                  <span class="spinner" id="th-spinner" role="status" aria-label="Loading" hidden></span>
+                </div>
+                <div id="th-kind" class="segmented small kind-switch" role="group" aria-label="Plot type" hidden>
+                  <button type="button" data-kind="box">Box</button>
+                  <button type="button" data-kind="violin">Violin</button>
+                </div>
+              </div>
             </div>
-          </div>
-          <div id="diurnal-hover" class="subheader">Hover for values, click to select a height</div>
+            <div id="timeheight"></div>
+            <div id="th-colorbar" class="colorbar"></div>
+            <div id="th-legend" class="legend"></div>
+          </section>
+
+          <section id="diurnal-panel" class="card diurnal-panel" aria-label="Diurnal cycle" hidden>
+            <div class="card-header">
+              <div class="card-title-row">
+                <div class="card-title">
+                  <h2 id="diurnal-title">Diurnal cycle</h2>
+                  <span class="spinner" id="diurnal-spinner" role="status" aria-label="Loading" hidden></span>
+                </div>
+                <div id="diurnal-kind" class="segmented small kind-switch" role="group" aria-label="Plot type">
+                  <button type="button" data-kind="box">Box</button>
+                  <button type="button" data-kind="violin">Violin</button>
+                </div>
+              </div>
+            </div>
+            <div id="diurnal"></div>
+            <div id="diurnal-colorbar" class="colorbar"></div>
+            <div id="diurnal-legend" class="legend"></div>
+          </section>
         </div>
-        <div id="diurnal"></div>
-        <div id="diurnal-colorbar" class="colorbar"></div>
-        <div id="diurnal-legend" class="legend"></div>
-      </section>
+      </div>
 
       <section class="card notes-panel" aria-label="Notes">
         <article id="notes" class="markdown">

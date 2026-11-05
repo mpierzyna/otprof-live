@@ -28,8 +28,8 @@ const STAT_BUTTONS: [string, string][][] = [
     ["lmean", "Lin. mean"],
   ],
 ];
-export const TH_HINT = "Hover for values, click to select a time and height";
-const DAY_HINT = "Hover for values, click to select a height";
+const TH_HINT = "Click to select the time and height";
+const DAY_HINT = "Click to select the height";
 const ICON_PLAY = "M8 5v14l11-7z";
 const ICON_PAUSE = "M6 19h4V5H6v14zm8-14v14h4V5h-4z";
 
@@ -106,12 +106,12 @@ export class Renderer {
     this.thView = new TimeHeightView(
       $("timeheight"),
       (step, zi) => store.set(zi === undefined ? { step, playing: false } : { step, zi, playing: false }),
-      (text) => ($("th-hover").textContent = text || TH_HINT),
+      TH_HINT,
     );
     this.dayView = new TimeHeightView(
       $("diurnal"),
       (_, zi) => zi !== undefined && store.set({ zi }),
-      (text) => ($("diurnal-hover").textContent = text || DAY_HINT),
+      DAY_HINT,
     );
   }
 
@@ -274,10 +274,8 @@ export class Renderer {
     $("profile-title").textContent = pv ? fullLabel(pv) : "Profile";
     let when = stepLabel(s.step);
     if (c && stat) {
-      const years = c.meta.years[s.step] ?? [];
-      const sample = years.length > 3 ? `${years.length} years, ${years[0]}–${years.at(-1)}` : `${years.length > 1 ? "years" : "year"} ${years.join(", ")}`; // fmt: skip
       const hours = periodLabel(c) ? ` (${periodLabel(c)})` : "";
-      when = `${when}${hours}, ${statName(stat, pv!).toLowerCase()} · ${sample}`;
+      when = `${when}${hours}, ${statName(stat, pv!).toLowerCase()}`;
     }
     $("profile-sub").textContent = s.cell >= 0 ? `${cellLabel(s.cell)} · ${when}` : "Click the map to select a point";
     const values = $("column-values");
