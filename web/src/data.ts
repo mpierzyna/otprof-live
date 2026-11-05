@@ -31,7 +31,6 @@ export interface VarMeta extends Encoding {
   violin_month_linear?: MonthViolin; // the same of the linear values
   // The statistics of the hours of a period instead of all hours: replaces these keys of the variable
   periods?: Record<string, Pick<VarMeta, "files" | "file" | "violin_month" | "violin_month_linear">>;
-  csv?: { periods: string[]; cells: string }; // the profiles for download: a zip per month and cell, "{month}", "{cell}"
 }
 
 type Violin = Encoding & { dims: string[]; x: number[]; files: string[] };
@@ -59,7 +58,8 @@ export interface ClimMeta extends GridMeta {
   hours: number[]; // of the diurnal cycle [UTC]
   years: number[][]; // years in the sample, per month
   stats: string[]; // all statistics, in the order offered
-  periods?: Record<string, { local_hour: number; utc_hour: number; utc_offset: number }>; // day, night
+  periods?: Record<string, { utc_hour: number }>; // day, night
+  downloads?: { label: string; file: string; bytes: number }[]; // the statistics as files for download (NetCDF)
 }
 
 export interface Index {
@@ -334,19 +334,6 @@ export class Climatology extends Dataset {
     return p;
   }
 
-  /** The zip with the profiles of `name` at a month and cell for download (a CSV file per period), its URL and a name
-   * for the file; undefined if the data have none. */
-  profileDownload(name: string, step: number, cell: number): { url: string; file: string } | undefined {
-    const csv = this.variables[name]?.csv;
-    if (!csv) return undefined;
-    const month = String(this.meta.months[step]).padStart(2, "0");
-    const path = csv.cells.replace("{month}", month).replace("{cell}", String(cell));
-    const [lat, lon] = [this.lat[Math.floor(cell / this.nlon)], this.lon[cell % this.nlon]];
-    return {
-      url: new URL(path, this.base).href,
-      file: `otprof-clim_cn2_lat${lat.toFixed(2)}_lon${lon.toFixed(2)}_m${month}_EXPERIMENTAL.zip`,
-    };
-  }
 
   static async open(url: string): Promise<Climatology> {
     const base = url.endsWith("/") ? url : `${url}/`;

@@ -212,12 +212,11 @@ async function main() {
     if (!cmaps.has(name)) cmaps.set(name, new Colormap(vc(name).colormap, vc(name).reverse));
     return cmaps.get(name)!;
   };
-  /** The hours of the statistics shown, for titles (empty without day and night in the data): the local time actually
-   * used, which may differ from the nominal 12 and 00 (the data are 3-hourly in UTC). */
+  /** The hours of the statistics shown, for titles (empty without day and night in the data). */
   const periodLabel = (c: Climatology) => {
     const p = c.meta.periods?.[c.period];
     if (!c.meta.periods) return "";
-    return p ? `${c.period}, ${format("02d")((p.utc_hour + p.utc_offset) % 24)}:00 UTC+${p.utc_offset}` : "global, all hours";
+    return p ? `${c.period}, ${format("02d")(p.utc_hour)} UTC` : "global, all hours";
   };
   /** Statistic of the climatology shown for a variable (the median if it has not got the selected one). */
   const statFor = (name: string): string | undefined => {
@@ -351,8 +350,7 @@ async function main() {
   const statGroup = $("stat");
   const download = $<HTMLButtonElement>("download");
   const downloadDialog = $<HTMLDialogElement>("download-dialog");
-  const downloadLink = $<HTMLAnchorElement>("download-link");
-  const profileDownload = $<HTMLButtonElement>("profile-download");
+  const climDownload = $<HTMLButtonElement>("clim-download");
   // Touch: the thumb jumps on touch down; restore it when the gesture becomes a page scroll (pointercancel)
   for (const input of [timeInput, heightInput]) {
     let before: string | null = null;
@@ -381,30 +379,39 @@ async function main() {
     speed.textContent = SPEEDS[speedIndex][1];
   });
   // Downloads, after the disclaimer (the dialog)
-  const askDownload = (url: string, file: string, label: string, what: string) => {
+  const fmtBytes = (bytes: number) => `${(bytes / 1e6).toFixed(bytes < 1e8 ? 1 : 0)} MB`;
+  const askDownload = (what: string, files: { base: string; file: string; label: string }[]) => {
     store.set({ playing: false });
-    downloadLink.href = url;
-    downloadLink.download = file;
-    downloadLink.textContent = label;
     $("download-what").textContent = what;
+    $("download-links").replaceChildren(
+      ...files.map(({ base, file, label }) => {
+        const link = document.createElement("a");
+        link.className = "primary-button";
+        link.href = new URL(file, base).href;
+        link.download = file;
+        link.textContent = label;
+        link.addEventListener("click", () => downloadDialog.close());
+        return link;
+      }),
+    );
     downloadDialog.showModal();
   };
   download.addEventListener("click", () => {
     const file = data instanceof Cycle ? data.meta.download : undefined;
     if (!(data instanceof Cycle) || !file) return;
-    const size = `${(file.bytes / 1e6).toFixed(1)} MB`;
-    askDownload(new URL(file.file, data.base).href, file.file, `Download (${size})`, `Forecast run ${fmtCycle(data.id)} as NetCDF: ${file.file}, ${size}.`); // fmt: skip
+    const size = fmtBytes(file.bytes);
+    askDownload(`Forecast run ${fmtCycle(data.id)} as NetCDF: ${file.file}, ${size}.`, [{ base: data.base, file: file.file, label: `Download (${size})` }]); // fmt: skip
   });
-  profileDownload.addEventListener("click", () => {
+  climDownload.addEventListener("click", () => {
     const c = climOf(data);
-    const s = st();
-    const pv = profileVar(s);
-    const zip = c && pv ? c.profileDownload(pv, s.lead, s.cell) : undefined;
-    if (!c || !zip) return;
-    askDownload(zip.url, zip.file, "Download", `Cₙ² profiles at ${cellLabel(s.cell)} in ${fmtMonth(c.times[s.lead])} as a ZIP of three CSV files (global, day, night) with all statistics: ${zip.file}.`); // fmt: skip
+    if (!c?.meta.downloads) return;
+    const base = c.base;
+    askDownload(
+      "The climatology of the whole domain as NetCDF: the monthly statistics (global, day, night) and the diurnal cycle per month, of Cₙ², r₀ and σᵢ².",
+      c.meta.downloads.map(({ label, file, bytes }) => ({ base, file, label: `${label} (${fmtBytes(bytes)})` })),
+    );
   });
   downloadDialog.addEventListener("click", (e) => e.target === downloadDialog && downloadDialog.close()); // backdrop
-  downloadLink.addEventListener("click", () => downloadDialog.close());
   const fillCycles = () => cycleSelect.replaceChildren(...index.cycles.map((id) => new Option(fmtCycle(id), id)));
   fillCycles();
   cycleSelect.addEventListener("change", () => switchCycle(cycleSelect.value, physical()));
@@ -453,16 +460,19 @@ async function main() {
     const file = data instanceof Cycle ? data.meta.download : undefined;
     download.hidden = !file;
     if (data instanceof Cycle && file) {
-      $("download-label").textContent = `nc (${(file.bytes / 1e6).toFixed(1)} MB)`;
+      $("download-label").textContent = `nc (${fmtBytes(file.bytes)})`;
     }
     $("cycle-group").hidden = !!c;
     $("stat-group").hidden = !c;
     $("period").hidden = !c?.meta.periods;
     for (const b of $("period").querySelectorAll<HTMLButtonElement>("button")) {
       const p = c?.meta.periods?.[b.dataset.period!];
-      b.title = p
-        ? `The time step nearest to ${format("02d")(p.local_hour)}:00 local time: ${format("02d")((p.utc_hour + p.utc_offset) % 24)}:00 UTC+${p.utc_offset} (${format("02d")(p.utc_hour)}:00 UTC)`
-        : "All hours";
+      b.title = p ? `Statistics of the ${format("02d")(p.utc_hour)} UTC time steps` : "Statistics of all hours";
+    }
+    climDownload.hidden = !c?.meta.downloads?.length;
+    if (c?.meta.downloads) {
+      const total = c.meta.downloads.reduce((sum, d) => sum + d.bytes, 0);
+      $("clim-download-label").textContent = `nc (${fmtBytes(total)})`;
     }
     $("diurnal-panel").hidden = !c;
     $("time-name").textContent = c ? "Month" : "Time";
@@ -779,8 +789,6 @@ async function main() {
     const c = climOf(data);
     for (const b of $("period").querySelectorAll("button"))
       b.setAttribute("aria-pressed", String(b.dataset.period === s.period));
-    const pv = profileVar(s);
-    profileDownload.hidden = !(c && pv && s.cell >= 0 && c.variables[pv].csv);
     if (c) {
       for (const b of statGroup.querySelectorAll<HTMLButtonElement>("button")) {
         const has = c.stats(s.variable).includes(b.dataset.stat!);

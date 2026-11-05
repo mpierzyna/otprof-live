@@ -656,6 +656,16 @@ option {
   height: 16px;
   fill: currentColor;
 }
+/* Download of the climatology: on its own, at the right end of the row */
+.download-button.standalone {
+  border-left: 1px solid var(--border-strong);
+  border-radius: var(--radius-s);
+}
+@media (min-width: 861px) {
+  .download-button.standalone {
+    margin-left: auto;
+  }
+}
 
 /* Dialog (download): the disclaimer as a callout, then cancel or download */
 .dialog {
@@ -718,8 +728,12 @@ option {
   margin: 0 0 4px;
   font-size: 13px;
 }
+.dialog-links {
+  display: contents;
+}
 .dialog-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   margin: 0;
@@ -928,20 +942,6 @@ input[type="range"]:disabled {
   font-weight: 500;
   cursor: pointer;
   user-select: none;
-}
-.title-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-button.filter-chip {
-  background: transparent;
-  font-family: inherit;
-}
-button.filter-chip svg {
-  width: 14px;
-  height: 14px;
-  fill: currentColor;
 }
 .filter-chip:hover {
   background: var(--hover);

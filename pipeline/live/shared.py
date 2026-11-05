@@ -2,11 +2,10 @@
 
 import datetime
 
-import numpy as np
-import xarray as xr
 from otprof.sources import Area
 
 from otprof_live.config import FORECAST_DATA, WEBUI_DATA, logger  # noqa: F401 (used by the steps)
+from otprof_live.netcdf import to_netcdf, to_netcdf_atomic  # noqa: F401 (used by the steps)
 
 RUNNING_DIR = FORECAST_DATA / "running"  # link to the run directory of the cycle in progress (step 0 .. step 3)
 
@@ -22,24 +21,6 @@ AREA_NL = Area(
     lat_min=50.0,
     lat_max=54.5,
 )
-
-
-# Fixed encoding for all datetimes; otherwise xarray infers units per file (e.g. "days since" for single-lead
-# files), which is then inherited by downstream steps and cannot represent their 3-hourly times.
-TIME_ENCODING = {"units": "hours since 1970-01-01", "dtype": "int64"}
-
-
-def to_netcdf(ds: xr.Dataset, path, **kwargs):
-    """`ds.to_netcdf` with all datetime variables encoded with `TIME_ENCODING` (and `encoding` given)."""
-    encoding = {v: TIME_ENCODING for v in ds.variables if np.issubdtype(ds[v].dtype, np.datetime64)}
-    return ds.to_netcdf(path, encoding=encoding | kwargs.pop("encoding", {}), **kwargs)
-
-
-def to_netcdf_atomic(ds: xr.Dataset, path, **kwargs):
-    """`to_netcdf` to `<path>.part`, renamed to `path` when complete: an interrupted write leaves no file at `path`."""
-    part = path.with_name(path.name + ".part")
-    to_netcdf(ds, part, **kwargs)
-    part.replace(path)
 
 
 def get_running_cycle() -> datetime.datetime:

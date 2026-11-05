@@ -28,12 +28,12 @@ from shared import (
 )
 
 from otprof_live.config import setup_logging
+from otprof_live.netcdf import LICENSE
 from otprof_live.webui import write_cycle, write_index
 
 VARIABLES = ["lcn2", "r0", "lsi2"]  # exported, in this order (the app shows them in this order)
 KEEP_CYCLES = 8  # cycles kept in the web app (2 days of 6-hourly cycles)
 INFO = {"Model": "SQF-H", "Inputs": "GFS 0.25°", "Correction": "nl-oQM"}
-LICENSE = "CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)"  # of the data for download
 DISCLAIMER = (
     "Experimental research data from a machine-learning model (SQF-H) trained on WRF simulations over the Netherlands, "
     "driven by GFS forecasts, which differ from the training inputs. Not validated for operational use. Provided as "

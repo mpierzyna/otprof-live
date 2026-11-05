@@ -75,6 +75,10 @@
             <span>Statistic</span>
             <div id="stat" class="stat-groups" role="group" aria-label="Statistic"></div>
           </div>
+          <button id="clim-download" class="download-button standalone" type="button" title="Download the climatology as NetCDF" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20h14v-2H5v2zm14-11h-4V3H9v6H5l7 7 7-7z" /></svg>
+            <span id="clim-download-label">nc</span>
+          </button>
         </div>
         <div class="controls-row">
           <div class="player">
@@ -121,15 +125,9 @@
               <h2 id="profile-title">Profile</h2>
               <span class="spinner" id="profile-spinner" role="status" aria-label="Loading" hidden></span>
             </div>
-            <div class="title-actions">
-              <label class="filter-chip" title="Logarithmic height axis of the profile and the time-height plot">
-                <input id="log-height" type="checkbox" /> Log height
-              </label>
-              <button id="profile-download" class="filter-chip" type="button" title="Download the Cₙ² profiles of this month and point as CSV files (global, day, night; all statistics)" hidden>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20h14v-2H5v2zm14-11h-4V3H9v6H5l7 7 7-7z" /></svg>
-                csv
-              </button>
-            </div>
+            <label class="filter-chip" title="Logarithmic height axis of the profile and the time-height plot">
+              <input id="log-height" type="checkbox" /> Log height
+            </label>
           </div>
           <div id="profile-sub" class="subheader"></div>
           <div id="column-values" class="chips"></div>
@@ -204,7 +202,7 @@
       <div class="dialog-accept"><!--content:download:body--></div>
       <form method="dialog" class="dialog-actions">
         <button type="submit" class="secondary-button">Cancel</button>
-        <a id="download-link" class="primary-button" download>Download</a>
+        <span id="download-links" class="dialog-links"></span>
       </form>
     </dialog>
     <script type="module" src="/src/main.ts"></script>

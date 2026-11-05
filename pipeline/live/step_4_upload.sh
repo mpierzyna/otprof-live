@@ -30,8 +30,9 @@ if [[ ! -f "${SRC}/index.json" ]]; then
 fi
 
 # New cycles first, then the index, then delete what is gone: the app never sees a cycle that is incomplete on the
-# remote, and an index listing a deleted cycle only until the sync is done
-"${RCLONE[@]}" copy "${SRC}" "${REMOTE}" --exclude /index.json
+# remote, and an index listing a deleted cycle only until the sync is done. Directories still being written (*.part,
+# the climatology of its step 5) stay local.
+"${RCLONE[@]}" copy "${SRC}" "${REMOTE}" --exclude /index.json --exclude "/*.part/**"
 "${RCLONE[@]}" copy "${SRC}/index.json" "${REMOTE}"
-"${RCLONE[@]}" sync "${SRC}" "${REMOTE}"
+"${RCLONE[@]}" sync "${SRC}" "${REMOTE}" --exclude "/*.part/**"
 echo "Synced ${SRC} to ${REMOTE}"
