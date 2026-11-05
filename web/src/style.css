@@ -929,6 +929,20 @@ input[type="range"]:disabled {
   cursor: pointer;
   user-select: none;
 }
+.title-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+button.filter-chip {
+  background: transparent;
+  font-family: inherit;
+}
+button.filter-chip svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
 .filter-chip:hover {
   background: var(--hover);
 }

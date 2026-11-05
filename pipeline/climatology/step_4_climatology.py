@@ -11,7 +11,10 @@ p(x), up to the interpolation between neighbouring samples); the moments (mean, 
 of `lcn2` is the log10 of the geometric mean). The extreme percentiles rest on few time steps per grid point and group
 (p0.01 / p99.99: 1 in 10 000; a calendar month of 22 years has ~5 500 time steps), better pooled over the domain.
 
-Groupings of the time steps: `all`, `season` (DJF, MAM, JJA, SON), `month` (calendar month), `hour` (UTC). Files:
+Groupings of the time steps: `all`, `season` (DJF, MAM, JJA, SON), `month` (calendar month), `hour` (UTC), and
+`month_day`, `month_night`: per calendar month the time steps nearest to 12 and 00 local time (`UTC_OFFSET`, no daylight
+saving; with 3-hourly data 12 and 00 UTC, i.e. 13:00 and 01:00 local, see `period_hours`; attributes `local_hour`,
+`utc_hour`, `utc_offset`, the dim is `month`). Files:
 
 - `grid_<grouping>.nc`: per grid point, dims ([grouping,] stat, lat, lon[, bottom_top])
 - `domain_<grouping>.nc`: pooled over all grid points and time steps, dims ([grouping,] stat[, bottom_top])
@@ -45,6 +48,9 @@ BOX_PERCENTILES = (5.0, 25.0, 50.0, 75.0, 95.0)  # box plots of the diurnal cycl
 STATS = ["n", "mean", "std", "min", *(f"p{p:g}" if p != 50 else "median" for p in PERCENTILES), "max", "iqr"]
 BOX_STATS = ["n", "mean", *(f"p{p:g}" if p != 50 else "median" for p in BOX_PERCENTILES), "iqr"]
 SEASONS = ["DJF", "MAM", "JJA", "SON"]
+# Local time follows the sun, not the clock: UTC+1 all year in the Netherlands, no daylight saving
+UTC_OFFSET = 1
+PERIOD_LOCAL_HOURS = {"day": 12, "night": 0}
 # Variables of the violin plots of the diurnal cycle: histogram bins of their densities and the upper end of the bins
 # as a percentile of all data (100: the maximum). Linear si2 is skewed: finer bins, and its far tail left out.
 VIOLIN_VARS = {"r0": (100, 100.0), "lsi2": (100, 100.0), "si2": (400, 99.9)}
@@ -59,14 +65,30 @@ ATTRS = {
 }
 
 
+def period_hours(hours: list[int]) -> dict[str, int]:
+    """{period: the hour [UTC] of `hours` nearest to its local time `PERIOD_LOCAL_HOURS`} (the data may not have the
+    exact one: 3-hourly data have neither 23 nor 11 UTC)."""
+
+    def nearest(local: int) -> int:
+        utc = (local - UTC_OFFSET) % 24
+        return min(hours, key=lambda h: min((h - utc) % 24, (utc - h) % 24))
+
+    return {p: nearest(local) for p, local in PERIOD_LOCAL_HOURS.items()}
+
+
 def make_groups(times: pd.DatetimeIndex) -> dict[str, dict]:
     """{grouping: {group: boolean mask over `times`}}."""
     season = np.array(SEASONS)[(times.month.values % 12) // 3]
+    hours = sorted(set(times.hour))
     return {
         "all": {"all": np.ones(len(times), dtype=bool)},
         "season": {s: season == s for s in SEASONS},
         "month": {m: np.asarray(times.month == m) for m in range(1, 13)},
-        "hour": {h: np.asarray(times.hour == h) for h in sorted(set(times.hour))},
+        "hour": {h: np.asarray(times.hour == h) for h in hours},
+        **{
+            f"month_{p}": {m: np.asarray((times.month == m) & (times.hour == h)) for m in range(1, 13)}
+            for p, h in period_hours(hours).items()
+        },
     }
 
 
@@ -150,13 +172,14 @@ def compute_all(values: dict[str, np.ndarray], groups: dict) -> dict[str, dict[s
 
 def to_dataset(arrays: dict[str, np.ndarray], grouping: str, groups: dict, coords: dict, dims: tuple) -> xr.Dataset:
     """{variable: (group, [stat,] ...)} → a dataset; `dims`: the dims after the statistics, for lcn2 (+ bottom_top).
-    The group dim is dropped for `all`."""
+    The group dim is dropped for `all`, and `month` for `month_day` and `month_night`."""
     ds = xr.Dataset()
+    group_dim = "month" if grouping.startswith("month_") else grouping
     for name, a in arrays.items():
         has_height = name in HEIGHT_VARS
-        names = (grouping, *(() if name == "lcn2_linear_mean" else ("stat",)), *dims, *(("bottom_top",) * has_height))
+        names = (group_dim, *(() if name == "lcn2_linear_mean" else ("stat",)), *dims, *(("bottom_top",) * has_height))
         ds[name] = xr.DataArray(a, dims=names, attrs=ATTRS[name])
-    ds = ds.assign_coords({grouping: list(groups[grouping]), "stat": STATS, **coords})
+    ds = ds.assign_coords({group_dim: list(groups[grouping]), "stat": STATS, **coords})
     return ds.squeeze(grouping, drop=True) if grouping == "all" else ds
 
 
@@ -249,9 +272,13 @@ if __name__ == "__main__":
     diurnal.assign_attrs(attrs).to_netcdf(OUT / "grid_month_hour.nc", encoding=compress)
     violin.assign_attrs(attrs).to_netcdf(OUT / "grid_month_hour_violin.nc")
     violin_month.assign_attrs(attrs).to_netcdf(OUT / "grid_month_violin.nc")
+    utc_hours = period_hours(hours)
+    print("Day and night (UTC):", utc_hours, f"local time UTC+{UTC_OFFSET}")
     for g in groups:
+        p = g.removeprefix("month_")
+        group_attrs = {"local_hour": PERIOD_LOCAL_HOURS[p], "utc_hour": utc_hours[p], "utc_offset": UTC_OFFSET} if p in utc_hours else {}  # fmt: skip
         out = to_dataset(grid[g], g, groups, {"lat": ds["lat"], "lon": ds["lon"], "z_agl": ds["z_agl"]}, ("lat", "lon"))
-        out.assign_attrs(attrs).to_netcdf(OUT / f"grid_{g}.nc")
+        out.assign_attrs(attrs | group_attrs).to_netcdf(OUT / f"grid_{g}.nc")
         out = to_dataset(domain[g], g, groups, {"z_agl": ds["z_agl"]}, ())
-        out.assign_attrs(attrs).to_netcdf(OUT / f"domain_{g}.nc")
+        out.assign_attrs(attrs | group_attrs).to_netcdf(OUT / f"domain_{g}.nc")
     print(f"Wrote {', '.join(sorted(p.name for p in OUT.glob('*.nc')))} to {OUT}")

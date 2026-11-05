@@ -127,6 +127,7 @@ Statistics per calendar month, written by `pipeline/src/otprof_live/webui.py` (`
 | `months` | calendar months (1 to 12), the steps of the time axis. |
 | `hours` | hours [UTC] of the diurnal cycle. |
 | `years` | per month, the years in the sample (shown in the app: months from few years are less representative). |
+| `periods` | optional, statistics of one hour per day besides those of all hours (`day`, `night`): `local_hour` the local time asked for, `utc_hour` the hour of `hours` nearest to it and used, `utc_offset` local time − UTC (no daylight saving). With 3-hourly data `day` is 12 UTC and `night` 00 UTC, in the Netherlands (UTC+1) 13:00 and 01:00 local time. If set, the app offers *Global*, *Day*, *Night*; see `periods` per variable. |
 | `stats` | all statistics, in the order the app offers them. `median`, `mean`, `pN` (Nth percentile); `lmean` is the log10 of the mean of the linear values of a log10 variable (lcn2, lsi2; `mean` is the mean of the log10 values, the log10 of the geometric mean). The app shows `lmean` as the mean when it shows such a variable linearly (10^value); the percentiles are the same in both scales. The app needs `p5`, `p25`, `p75`, `p95` for the bands. |
 
 Per variable, in addition to the cycle keys:
@@ -143,6 +144,8 @@ Per variable, in addition to the cycle keys:
 | `violin_linear` | optional, of a log10 variable: the same of its linear values (`x` linear, 10^value), estimated in linear space; the app uses them when it shows the variable linearly. |
 | `violin_month` | optional distributions per month (all hours) for violin plots of the annual cycle: as `violin`, but one `file` `[month][lat][lon][x]`. |
 | `violin_month_linear` | optional, of a log10 variable: the same of its linear values. |
+| `periods` | optional, per period the `files` or `file`, `violin_month` and `violin_month_linear` of that period, which replace those of the variable. Same statistics, encoding and `display_ranges` as all hours (over all periods), so that colours compare. The diurnal cycle is the same for all. |
+| `csv` | optional, of a variable with `z` (lcn2): its profiles for download. `periods`: the periods included; `cells`: one zip per month and cell, with `{month}` (two digits) and `{cell}`, each with one CSV file per period, `otprof-clim_cn2_lat<lat>_lon<lon>_m<MM>_<period>_EXPERIMENTAL.csv`. Columns: `z_agl_m` (one row per height), `n` (time steps), `cn2_<stat>` (linear Cn2 [m^-2/3]: `mean`, `std`, `min`, the percentiles `p0.01` .. `p99.99` with `median`, `max`, `iqr`), `lcn2_mean`, `lcn2_std` (of log10 Cn2). Pre-compressed, ~22 KB each (~190 MB for all months and cells). |
 
 ## Serving
 

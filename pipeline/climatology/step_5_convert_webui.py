@@ -10,6 +10,8 @@ the log10 of the mean of the linear values (cn2, si2) as the extra statistic `lm
 cycle (3-hourly, UTC) of lcn2 (one file per grid point), r0 and lsi2 with the same statistics (`grid_month_hour.nc`) and as densities for violin
 plots (`grid_month_hour_violin.nc`, if there; lsi2 also of the linear si2, `violin_linear`), and the densities per
 month for violin plots of the annual cycle (`grid_month_violin.nc`, if there: `violin_month`, `violin_month_linear`).
+The same for day and night (`grid_month_day.nc`, `grid_month_night.nc`, if there: `periods`), and with them the Cn2
+profiles for download: a zip of three CSV files (global, day, night) per month and grid point (`csv`).
 """
 
 import pathlib
@@ -35,8 +37,17 @@ if __name__ == "__main__":
     violin_month = to_grid(xr.open_dataset(month_file)).load() if month_file.exists() else None
     if violin_month is None:
         logger.warning(f"{month_file} missing (step 4 before the violins per month): the annual cycle as box plots only")
+    periods = {}
+    for period in ("day", "night"):
+        file = src / f"grid_month_{period}.nc"
+        if file.exists():
+            periods[period] = to_grid(xr.open_dataset(file)).load()
+        else:
+            logger.warning(f"{file} missing (step 4 before day and night): the app shows global statistics only, no CSV")
+    if len(periods) < 2:
+        periods = {}
     out = WEBUI_DATA / CLIM_DIR
-    meta = write_climatology(grid, diurnal, out, violin, violin_month)
+    meta = write_climatology(grid, diurnal, out, violin, violin_month, periods)
     size = sum(f.stat().st_size for f in out.rglob("*") if f.is_file()) / 1e6
     logger.info(f"Wrote {out} ({size:.1f} MB, {meta['info']['Sample']})")
 

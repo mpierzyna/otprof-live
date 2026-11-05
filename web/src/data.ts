@@ -29,6 +29,9 @@ export interface VarMeta extends Encoding {
   violin_linear?: Violin; // the same of the linear values (10^value) of a log10 variable
   violin_month?: MonthViolin; // densities of the months (all hours) [month][lat][lon][x]
   violin_month_linear?: MonthViolin; // the same of the linear values
+  // The statistics of the hours of a period instead of all hours: replaces these keys of the variable
+  periods?: Record<string, Pick<VarMeta, "files" | "file" | "violin_month" | "violin_month_linear">>;
+  csv?: { periods: string[]; cells: string }; // the profiles for download: a zip per month and cell, "{month}", "{cell}"
 }
 
 type Violin = Encoding & { dims: string[]; x: number[]; files: string[] };
@@ -56,6 +59,7 @@ export interface ClimMeta extends GridMeta {
   hours: number[]; // of the diurnal cycle [UTC]
   years: number[][]; // years in the sample, per month
   stats: string[]; // all statistics, in the order offered
+  periods?: Record<string, { local_hour: number; utc_hour: number; utc_offset: number }>; // day, night
 }
 
 export interface Index {
@@ -282,9 +286,12 @@ export class Cycle extends Dataset {
   }
 }
 
-/** Statistics per calendar month: the steps are the months (as mid-month dates of the year 2001). */
+/** Statistics per calendar month: the steps are the months (as mid-month dates of the year 2001). One object per period
+ * (`forPeriod`: all hours, day, night), differing in the monthly statistics and sharing the diurnal cycle. */
 export class Climatology extends Dataset {
   readonly meta: ClimMeta;
+  readonly period: string;
+  private siblings = new Map<string, Promise<Climatology>>();
   private diurnalArr = new Map<string, Float32Array>();
   private violinArr = new Map<string, Promise<Float32Array>>(); // "<name>/<kind>/<step>"
   private violinDone = new Map<string, Float32Array>();
@@ -293,10 +300,52 @@ export class Climatology extends Dataset {
   private monthViolinArr = new Map<string, Promise<Float32Array>>(); // "<name>/<kind>"
   private monthViolinDone = new Map<string, Float32Array>();
 
-  private constructor(meta: ClimMeta, base: string) {
+  private constructor(meta: ClimMeta, base: string, period = "global") {
     const mid = (m: number) => new Date((Date.UTC(2001, m - 1, 1) + Date.UTC(2001, m, 1)) / 2);
     super("climatology", base, meta, meta.months.map(mid));
     this.meta = meta;
+    this.period = period;
+  }
+
+  /** Whether the climatology can show `period`. */
+  hasPeriod(period: string): boolean {
+    return period === "global" || !!this.meta.periods?.[period];
+  }
+
+  /** The climatology of `period` (opened on first use); of all hours if it has not got `period`. */
+  forPeriod(period: string): Promise<Climatology> {
+    const key = this.hasPeriod(period) ? period : "global";
+    let p = this.siblings.get(key);
+    if (!p) {
+      const variables = Object.fromEntries(
+        Object.entries(this.variables).map(([name, v]) => [name, { ...v, ...v.periods?.[key] }]),
+      );
+      const c = new Climatology({ ...this.meta, variables }, this.base, key);
+      c.siblings = this.siblings;
+      c.diurnalArr = this.diurnalArr;
+      c.violinArr = this.violinArr;
+      c.violinDone = this.violinDone;
+      c.diurnalCellArr = this.diurnalCellArr;
+      c.diurnalCellDone = this.diurnalCellDone;
+      p = c.loadWhole().then(() => c);
+      this.siblings.set(key, p);
+      p.catch(() => this.siblings.delete(key)); // retried next time
+    }
+    return p;
+  }
+
+  /** The zip with the profiles of `name` at a month and cell for download (a CSV file per period), its URL and a name
+   * for the file; undefined if the data have none. */
+  profileDownload(name: string, step: number, cell: number): { url: string; file: string } | undefined {
+    const csv = this.variables[name]?.csv;
+    if (!csv) return undefined;
+    const month = String(this.meta.months[step]).padStart(2, "0");
+    const path = csv.cells.replace("{month}", month).replace("{cell}", String(cell));
+    const [lat, lon] = [this.lat[Math.floor(cell / this.nlon)], this.lon[cell % this.nlon]];
+    return {
+      url: new URL(path, this.base).href,
+      file: `otprof-clim_cn2_lat${lat.toFixed(2)}_lon${lon.toFixed(2)}_m${month}_EXPERIMENTAL.zip`,
+    };
   }
 
   static async open(url: string): Promise<Climatology> {
@@ -305,11 +354,13 @@ export class Climatology extends Dataset {
     if (meta.format !== CLIM_FORMAT) console.warn(`climatology/meta.json: format ${meta.format}, expected ${CLIM_FORMAT}`); // fmt: skip
     const clim = new Climatology(meta, base);
     await clim.loadWhole();
+    clim.siblings.set("global", Promise.resolve(clim));
     return clim;
   }
 
   protected override async loadWhole() {
     await super.loadWhole();
+    if (this.diurnalArr.size) return; // shared with the other periods
     await Promise.all(
       Object.entries(this.variables).map(async ([name, v]) => {
         if (v.diurnal) this.diurnalArr.set(name, decode(await this.fetchBin(v.diurnal.file), v));

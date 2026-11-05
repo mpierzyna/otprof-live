@@ -1,5 +1,5 @@
 // Shared view state of all panels, mirrored in the URL hash: forecast #cycle=..&var=..&t=<lead h>&z=<m>&lat=..&lon=..,
-// climatology #mode=clim&var=..&month=<1-12>&stat=..&z=<m>&lat=..&lon=..; log=<names>: the log₁₀ variables shown as
+// climatology #mode=clim&var=..&month=<1-12>&stat=..&period=<day|night>&z=<m>&lat=..&lon=..; log=<names>: the log₁₀ variables shown as
 // log₁₀, the others linearly (only if not the defaults; log=0: all linearly, log=1: all as log₁₀)
 
 import { Climatology, type Cycle, type Dataset, nearestIndex } from "./data";
@@ -12,6 +12,7 @@ export interface State {
   variable: string;
   lead: number; // index into the steps: the cycle's lead times, the climatology's months
   stat: string; // statistic shown in the climatology
+  period: string; // hours of the climatology's statistics: "global" (all), "day", "night"
   diurnalKind: "box" | "violin"; // plots of the climatology's diurnal cycle
   zi: number; // index into the heights
   cell: number; // lat index * nlon + lon index, -1 for none
@@ -54,6 +55,7 @@ export interface HashState {
   leadHours?: number;
   month?: number; // 1 to 12
   stat?: string;
+  period?: string;
   z?: number;
   lat?: number;
   lon?: number;
@@ -70,6 +72,7 @@ export function parseHash(hash: string): HashState {
     leadHours: num("t"),
     month: num("month"),
     stat: p.get("stat") ?? undefined,
+    period: p.get("period") ?? undefined,
     z: num("z"),
     lat: num("lat"),
     lon: num("lon"),
@@ -89,6 +92,7 @@ export function toHash(s: State, cycle: Dataset, logDefault: Record<string, bool
     cycle instanceof Climatology
       ? new URLSearchParams({ mode: "clim", var: s.variable, month: String(cycle.meta.months[s.lead]), stat: s.stat })
       : new URLSearchParams({ cycle: s.cycle, var: s.variable, t: String((cycle as Cycle).meta.lead_hours[s.lead]) }); // fmt: skip
+  if (cycle instanceof Climatology && s.period !== "global") p.set("period", s.period);
   const names = Object.keys(logDefault);
   if (names.some((n) => (s.logValues[n] ?? logDefault[n]) !== logDefault[n]))
     p.set("log", names.filter((n) => s.logValues[n] ?? logDefault[n]).join(","));

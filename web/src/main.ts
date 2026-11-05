@@ -170,7 +170,7 @@ async function main() {
   let climLoad: Promise<Climatology> | undefined;
   const openClim = () => (climLoad ??= Climatology.open(climUrl!).then((c) => (clim = c)));
   const firstCycle = hash.cycle && index.cycles.includes(hash.cycle) ? hash.cycle : latestCycle();
-  let data: Dataset = await loading<Dataset>(PANELS, hash.mode === "clim" && climUrl ? openClim() : openCycle(firstCycle));
+  let data: Dataset = await loading<Dataset>(PANELS, hash.mode === "clim" && climUrl ? openClim().then((c) => c.forPeriod(hash.period ?? "global")) : openCycle(firstCycle)); // fmt: skip
   const climOf = (d: Dataset) => (d instanceof Climatology ? d : undefined);
   /** Lead hours shown when the forecast was left for the climatology */
   let liveLeadHours: number | undefined;
@@ -211,6 +211,13 @@ async function main() {
   const cmap = (name: string) => {
     if (!cmaps.has(name)) cmaps.set(name, new Colormap(vc(name).colormap, vc(name).reverse));
     return cmaps.get(name)!;
+  };
+  /** The hours of the statistics shown, for titles (empty without day and night in the data): the local time actually
+   * used, which may differ from the nominal 12 and 00 (the data are 3-hourly in UTC). */
+  const periodLabel = (c: Climatology) => {
+    const p = c.meta.periods?.[c.period];
+    if (!c.meta.periods) return "";
+    return p ? `${c.period}, ${format("02d")((p.utc_hour + p.utc_offset) % 24)}:00 UTC+${p.utc_offset}` : "global, all hours";
   };
   /** Statistic of the climatology shown for a variable (the median if it has not got the selected one). */
   const statFor = (name: string): string | undefined => {
@@ -280,6 +287,7 @@ async function main() {
   };
   const store = new Store({
     mode: climOf(data) ? "clim" : "live",
+    period: climOf(data)?.period ?? "global",
     cycle: firstCycle,
     ...resolve(hash, data, fallback(data)),
     playing: false,
@@ -344,6 +352,7 @@ async function main() {
   const download = $<HTMLButtonElement>("download");
   const downloadDialog = $<HTMLDialogElement>("download-dialog");
   const downloadLink = $<HTMLAnchorElement>("download-link");
+  const profileDownload = $<HTMLButtonElement>("profile-download");
   // Touch: the thumb jumps on touch down; restore it when the gesture becomes a page scroll (pointercancel)
   for (const input of [timeInput, heightInput]) {
     let before: string | null = null;
@@ -371,10 +380,28 @@ async function main() {
     speedIndex = (speedIndex + 1) % SPEEDS.length;
     speed.textContent = SPEEDS[speedIndex][1];
   });
-  // Download of the forecast run shown, after the disclaimer (the dialog)
-  download.addEventListener("click", () => {
+  // Downloads, after the disclaimer (the dialog)
+  const askDownload = (url: string, file: string, label: string, what: string) => {
     store.set({ playing: false });
+    downloadLink.href = url;
+    downloadLink.download = file;
+    downloadLink.textContent = label;
+    $("download-what").textContent = what;
     downloadDialog.showModal();
+  };
+  download.addEventListener("click", () => {
+    const file = data instanceof Cycle ? data.meta.download : undefined;
+    if (!(data instanceof Cycle) || !file) return;
+    const size = `${(file.bytes / 1e6).toFixed(1)} MB`;
+    askDownload(new URL(file.file, data.base).href, file.file, `Download (${size})`, `Forecast run ${fmtCycle(data.id)} as NetCDF: ${file.file}, ${size}.`); // fmt: skip
+  });
+  profileDownload.addEventListener("click", () => {
+    const c = climOf(data);
+    const s = st();
+    const pv = profileVar(s);
+    const zip = c && pv ? c.profileDownload(pv, s.lead, s.cell) : undefined;
+    if (!c || !zip) return;
+    askDownload(zip.url, zip.file, "Download", `Cₙ² profiles at ${cellLabel(s.cell)} in ${fmtMonth(c.times[s.lead])} as a ZIP of three CSV files (global, day, night) with all statistics: ${zip.file}.`); // fmt: skip
   });
   downloadDialog.addEventListener("click", (e) => e.target === downloadDialog && downloadDialog.close()); // backdrop
   downloadLink.addEventListener("click", () => downloadDialog.close());
@@ -400,6 +427,8 @@ async function main() {
     b.addEventListener("click", () => store.set({ diurnalKind: b.dataset.kind as State["diurnalKind"] }));
   for (const b of $("mode-tabs").querySelectorAll<HTMLButtonElement>("button"))
     b.addEventListener("click", () => void switchMode(b.dataset.mode as Mode));
+  for (const b of $("period").querySelectorAll<HTMLButtonElement>("button"))
+    b.addEventListener("click", () => void switchPeriod(b.dataset.period!));
 
   function buildVariableSwitch() {
     const el = $("var-switch");
@@ -424,15 +453,17 @@ async function main() {
     const file = data instanceof Cycle ? data.meta.download : undefined;
     download.hidden = !file;
     if (data instanceof Cycle && file) {
-      const size = `${(file.bytes / 1e6).toFixed(1)} MB`;
-      $("download-label").textContent = `nc (${size})`;
-      downloadLink.href = new URL(file.file, data.base).href;
-      downloadLink.download = file.file;
-      downloadLink.textContent = `Download (${size})`;
-      $("download-what").textContent = `Forecast run ${fmtCycle(data.id)} as NetCDF: ${file.file}, ${size}.`;
+      $("download-label").textContent = `nc (${(file.bytes / 1e6).toFixed(1)} MB)`;
     }
     $("cycle-group").hidden = !!c;
     $("stat-group").hidden = !c;
+    $("period").hidden = !c?.meta.periods;
+    for (const b of $("period").querySelectorAll<HTMLButtonElement>("button")) {
+      const p = c?.meta.periods?.[b.dataset.period!];
+      b.title = p
+        ? `The time step nearest to ${format("02d")(p.local_hour)}:00 local time: ${format("02d")((p.utc_hour + p.utc_offset) % 24)}:00 UTC+${p.utc_offset} (${format("02d")(p.utc_hour)}:00 UTC)`
+        : "All hours";
+    }
     $("diurnal-panel").hidden = !c;
     $("time-name").textContent = c ? "Month" : "Time";
     document.querySelector(".layout")!.classList.toggle("clim", !!c);
@@ -496,7 +527,9 @@ async function main() {
     const stat = statFor(s.variable);
     mapView.draw(shownArr(s.variable, data.field(s.variable, s.lead, s.zi, stat)), cmap(s.variable), lo, hi);
     const atZ = data.profileVars.includes(s.variable) ? ` at ${formatHeight(data.z[s.zi])}` : "";
-    const ofStat = stat ? `, ${statName(stat, s.variable).toLowerCase()}` : "";
+    const c = climOf(data);
+    const hours = c && periodLabel(c) ? `, ${periodLabel(c)}` : "";
+    const ofStat = stat ? `, ${statName(stat, s.variable).toLowerCase()}${hours}` : "";
     drawColorbar($("colorbar"), cmap(s.variable), [lo, hi], `${fullLabel(s.variable)}${ofStat}${atZ}`);
   }
 
@@ -510,7 +543,8 @@ async function main() {
     if (c && stat) {
       const years = c.meta.years[s.lead] ?? [];
       const sample = years.length > 3 ? `${years.length} years, ${years[0]}–${years.at(-1)}` : `${years.length > 1 ? "years" : "year"} ${years.join(", ")}`; // fmt: skip
-      when = `${when}, ${statName(stat, pv!).toLowerCase()} · ${sample}`;
+      const hours = periodLabel(c) ? ` (${periodLabel(c)})` : "";
+      when = `${when}${hours}, ${statName(stat, pv!).toLowerCase()} · ${sample}`;
     }
     $("profile-sub").textContent = s.cell >= 0 ? `${cellLabel(s.cell)} · ${when}` : "Click the map to select a point";
     const values = $("column-values");
@@ -580,7 +614,8 @@ async function main() {
       return;
     }
     drawLegend($("th-legend"), c ? boxLegend(c, kind, c.columnVars) : []);
-    $("th-title").textContent = `${c ? "Annual cycle" : "Forecast"} at ${cellLabel(s.cell)}`;
+    const hours = c && periodLabel(c) ? ` (${periodLabel(c)})` : "";
+    $("th-title").textContent = `${c ? "Annual cycle" : "Forecast"}${hours} at ${cellLabel(s.cell)}`;
     thView.draw({
       cycle: data,
       name: pv,
@@ -742,6 +777,10 @@ async function main() {
     for (const b of $("mode-tabs").querySelectorAll("button"))
       b.setAttribute("aria-selected", String(b.dataset.mode === s.mode));
     const c = climOf(data);
+    for (const b of $("period").querySelectorAll("button"))
+      b.setAttribute("aria-pressed", String(b.dataset.period === s.period));
+    const pv = profileVar(s);
+    profileDownload.hidden = !(c && pv && s.cell >= 0 && c.variables[pv].csv);
     if (c) {
       for (const b of statGroup.querySelectorAll<HTMLButtonElement>("button")) {
         const has = c.stats(s.variable).includes(b.dataset.stat!);
@@ -826,7 +865,7 @@ async function main() {
     await mapView.setCycle(data);
     const r = resolve(h, data, fallback(data));
     r.lead = limitSteps(r.lead, explicit && (h.leadHours !== undefined || h.month !== undefined));
-    store.state = { ...st(), mode: climOf(data) ? "clim" : "live", ...(data instanceof Cycle && { cycle: data.id }), ...r, logValues: logOf(h) ?? st().logValues }; // fmt: skip
+    store.state = { ...st(), mode: climOf(data) ? "clim" : "live", period: climOf(data)?.period ?? st().period, ...(data instanceof Cycle && { cycle: data.id }), ...r, logValues: logOf(h) ?? st().logValues }; // fmt: skip
     await data.loadStep(r.lead);
     renderAll();
     void loading(["th"], data.loadAll(r.lead, firstStep));
@@ -844,11 +883,28 @@ async function main() {
     if (mode === "clim") {
       liveLeadHours = h.leadHours;
       if (data instanceof Cycle) h.month = data.times[st().lead].getUTCMonth() + 1;
-      return switchTo(await openClim(), { ...h, ...defined(extra) }, explicit);
+      const c = await (await openClim()).forPeriod(extra.period ?? st().period);
+      return switchTo(c, { ...h, ...defined(extra) }, explicit);
     }
     const id = extra.cycle && index.cycles.includes(extra.cycle) ? extra.cycle : st().cycle;
     const next = cycle?.id === id ? cycle : await openCycle(id);
     await switchTo(next, { ...h, leadHours: liveLeadHours, ...defined(extra) }, explicit);
+  }
+  /** Global, day or night: the climatology of that period, the rest of the view stays. The buttons follow at once, the
+   * last click wins. */
+  async function switchPeriod(period: string, h = physical()) {
+    const c = climOf(data);
+    if (!c?.hasPeriod(period) || period === st().period) return;
+    store.state.period = period;
+    renderControls();
+    try {
+      const next = await loading(PANELS, c.forPeriod(period));
+      if (st().period === period) await loading(PANELS, switchTo(next, h));
+    } catch (e) {
+      console.warn(`Loading the climatology (${period}) failed:`, e);
+      if (st().period === period) store.state.period = climOf(data)?.period ?? "global";
+      renderControls();
+    }
   }
   function renderAll() {
     const s = st();
@@ -867,6 +923,7 @@ async function main() {
     const h = parseHash(location.hash);
     if (h.mode && h.mode !== st().mode) return void switchMode(h.mode, h, true);
     if (data instanceof Cycle && h.cycle && h.cycle !== data.id && index.cycles.includes(h.cycle)) return void switchCycle(h.cycle, { ...physical(), ...defined(h) }, true); // fmt: skip
+    if (h.period && h.period !== st().period && climOf(data)?.hasPeriod(h.period)) return void switchPeriod(h.period, { ...physical(), ...defined(h) }); // fmt: skip
     const before = firstStep;
     const r = resolve(h, data, { ...st() });
     r.lead = limitSteps(r.lead, h.leadHours !== undefined);

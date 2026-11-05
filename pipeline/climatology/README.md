@@ -21,8 +21,8 @@ uploads the result (or `bash ../live/step_4_upload.sh`).
 | `step_1_download_era5.py` | ERA5 2005-01 .. 2026-06 (00, 03, .., 21 UTC) from the Copernicus Climate Data Store, same area and variables as the training data of SQF-H; ~430 requests, ~29 GB GRIB. Quarters in the order of a Sobol sequence over (year, quarter), so a sample spread over years and seasons is usable early. The plan is kept in `1_raw/cds/jobs.json`. |
 | `step_2_to_zarr.py` | complete months → `1_raw/era5.zarr` (ARCO-ERA5 names, units and levels); `--delete-grib` deletes GRIB files once converted |
 | `step_3_predict.py` | SQF-H with output quantile mapping at its 99 heights (8 m to ~29 km) → `3_predictions/predictions.zarr`: `lcn2` per height, `r0` [cm] and `lsi2` per profile (1550 nm, plane wave). `--device cuda:0` for a GPU (~25 s per month). |
-| `step_4_climatology.py` | statistics (mean, std, percentiles, ...) of lcn2, cn2, r0, lsi2 and si2 per grid point and over the domain, grouped by month, season and hour; the diurnal cycle per calendar month; densities for violin plots → `4_climatology/*.nc` |
-| `step_5_convert_webui.py` | → the web app's climatology (`docs/DATA_FORMAT.md`) in `WEBUI_DATA/climatology/`, listed in `index.json` |
+| `step_4_climatology.py` | statistics (mean, std, percentiles, ...) of lcn2, cn2, r0, lsi2 and si2 per grid point and over the domain, grouped by month, season and hour, and per month for day and night (the time steps nearest to 12 and 00 local time, UTC+1 without daylight saving: with 3-hourly data 12 and 00 UTC, i.e. 13:00 and 01:00 local); the diurnal cycle per calendar month; densities for violin plots → `4_climatology/*.nc` |
+| `step_5_convert_webui.py` | → the web app's climatology (`docs/DATA_FORMAT.md`) in `WEBUI_DATA/climatology/`, listed in `index.json`, with the Cn2 profiles for download: a zip of three CSV files (global, day, night) per month and grid point |
 
 Step 1 needs a CDS account (`~/.ecmwfdatastoresrc`) with the licences of `reanalysis-era5-pressure-levels` and
 `reanalysis-era5-single-levels` accepted. During the download the statistics rest on a sample of the years; the months

@@ -88,6 +88,11 @@
             <output id="time-label"></output>
             <input id="time" type="range" min="0" max="0" step="1" value="0" />
           </div>
+          <div id="period" class="segmented" role="group" aria-label="Hours of the monthly statistics" hidden>
+            <button type="button" data-period="global">Global</button>
+            <button type="button" data-period="day">Day</button>
+            <button type="button" data-period="night">Night</button>
+          </div>
         </div>
       </section>
 
@@ -116,9 +121,15 @@
               <h2 id="profile-title">Profile</h2>
               <span class="spinner" id="profile-spinner" role="status" aria-label="Loading" hidden></span>
             </div>
-            <label class="filter-chip" title="Logarithmic height axis of the profile and the time-height plot">
-              <input id="log-height" type="checkbox" /> Log height
-            </label>
+            <div class="title-actions">
+              <label class="filter-chip" title="Logarithmic height axis of the profile and the time-height plot">
+                <input id="log-height" type="checkbox" /> Log height
+              </label>
+              <button id="profile-download" class="filter-chip" type="button" title="Download the Cₙ² profiles of this month and point as CSV files (global, day, night; all statistics)" hidden>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20h14v-2H5v2zm14-11h-4V3H9v6H5l7 7 7-7z" /></svg>
+                csv
+              </button>
+            </div>
           </div>
           <div id="profile-sub" class="subheader"></div>
           <div id="column-values" class="chips"></div>
