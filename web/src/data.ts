@@ -286,6 +286,26 @@ export class Cycle extends Dataset {
   }
 }
 
+/** Values loaded on first use and kept; a failed load is tried again next time. */
+class LoadOnce<T> {
+  private pending = new Map<string, Promise<T>>();
+  private done = new Map<string, T>();
+
+  load(key: string, load: () => Promise<T>): Promise<T> {
+    let p = this.pending.get(key);
+    if (!p) {
+      p = load().then((value) => (this.done.set(key, value), value));
+      this.pending.set(key, p);
+      p.catch(() => this.pending.delete(key));
+    }
+    return p;
+  }
+
+  get(key: string): T | undefined {
+    return this.done.get(key);
+  }
+}
+
 /** Statistics per calendar month: the steps are the months (as mid-month dates of the year 2001). One object per period
  * (`forPeriod`: all hours, day, night), differing in the monthly statistics and sharing the diurnal cycle. */
 export class Climatology extends Dataset {
@@ -293,12 +313,9 @@ export class Climatology extends Dataset {
   readonly period: string;
   private siblings = new Map<string, Promise<Climatology>>();
   private diurnalArr = new Map<string, Float32Array>();
-  private violinArr = new Map<string, Promise<Float32Array>>(); // "<name>/<kind>/<step>"
-  private violinDone = new Map<string, Float32Array>();
-  private diurnalCellArr = new Map<string, Promise<Float32Array>>(); // "<name>/<cell>"
-  private diurnalCellDone = new Map<string, Float32Array>();
-  private monthViolinArr = new Map<string, Promise<Float32Array>>(); // "<name>/<kind>"
-  private monthViolinDone = new Map<string, Float32Array>();
+  private violins = new LoadOnce<Float32Array>(); // "<name>/<kind>/<step>"
+  private diurnalCells = new LoadOnce<Float32Array>(); // "<name>/<cell>"
+  private monthViolins = new LoadOnce<Float32Array>(); // "<name>/<kind>"; of this period
 
   private constructor(meta: ClimMeta, base: string, period = "global") {
     const mid = (m: number) => new Date((Date.UTC(2001, m - 1, 1) + Date.UTC(2001, m, 1)) / 2);
@@ -323,10 +340,8 @@ export class Climatology extends Dataset {
       const c = new Climatology({ ...this.meta, variables }, this.base, key);
       c.siblings = this.siblings;
       c.diurnalArr = this.diurnalArr;
-      c.violinArr = this.violinArr;
-      c.violinDone = this.violinDone;
-      c.diurnalCellArr = this.diurnalCellArr;
-      c.diurnalCellDone = this.diurnalCellDone;
+      c.violins = this.violins;
+      c.diurnalCells = this.diurnalCells;
       p = c.loadWhole().then(() => c);
       this.siblings.set(key, p);
       p.catch(() => this.siblings.delete(key)); // retried next time
@@ -378,20 +393,17 @@ export class Climatology extends Dataset {
 
   /** The diurnal cycle of the profiles of `name` at a cell (loaded on first use, one file per cell). */
   loadDiurnalProfiles(name: string, cell: number): Promise<void> {
-    const key = `${name}/${cell}`;
     const v = this.variables[name];
-    if (!v.diurnal_profiles) return Promise.resolve();
-    if (!this.diurnalCellArr.has(key)) {
-      const p = this.fetchBin(v.diurnal_profiles.cells.replace("{cell}", String(cell))).then((b) => decode(b, v));
-      this.diurnalCellArr.set(key, p.then((a) => (this.diurnalCellDone.set(key, a), a)));
-      p.catch(() => this.diurnalCellArr.delete(key)); // retried next time
-    }
-    return this.diurnalCellArr.get(key)!.then(() => undefined);
+    const cells = v.diurnal_profiles?.cells;
+    if (!cells) return Promise.resolve();
+    return this.diurnalCells
+      .load(`${name}/${cell}`, () => this.fetchBin(cells.replace("{cell}", String(cell))).then((b) => decode(b, v)))
+      .then(() => undefined);
   }
 
   /** Profile of `name` at a month, the hour `meta.hours[hour]` and a cell; undefined until `loadDiurnalProfiles`. */
   diurnalProfile(name: string, step: number, hour: number, cell: number, stat?: string): Float32Array | undefined {
-    const arr = this.diurnalCellDone.get(`${name}/${cell}`);
+    const arr = this.diurnalCells.get(`${name}/${cell}`);
     const stats = this.variables[name].diurnal_profiles?.stats ?? [];
     const k = stat ? stats.indexOf(stat) : 0;
     if (!arr || k < 0) return undefined;
@@ -415,14 +427,8 @@ export class Climatology extends Dataset {
     return Promise.all(
       this.violinVars.map((name) => {
         const kind = this.violinKind(name, linear(name));
-        const key = `${name}/${kind}/${step}`;
-        if (!this.violinArr.has(key)) {
-          const v = this.variables[name][kind]!;
-          const p = this.fetchBin(v.files[step]).then((b) => decode(b, v));
-          this.violinArr.set(key, p.then((a) => (this.violinDone.set(key, a), a)));
-          p.catch(() => this.violinArr.delete(key)); // retried next time
-        }
-        return this.violinArr.get(key)!;
+        const v = this.variables[name][kind]!;
+        return this.violins.load(`${name}/${kind}/${step}`, () => this.fetchBin(v.files[step]).then((b) => decode(b, v)));
       }),
     ).then(() => undefined);
   }
@@ -432,7 +438,7 @@ export class Climatology extends Dataset {
    * (`linear` in the result), else of its values. */
   violin(name: string, step: number, cell: number, linear = false): { x: number[]; density: Float32Array[]; linear: boolean } | undefined { // fmt: skip
     const kind = this.violinKind(name, linear);
-    const arr = this.violinDone.get(`${name}/${kind}/${step}`);
+    const arr = this.violins.get(`${name}/${kind}/${step}`);
     const x = this.variables[name][kind]?.x;
     if (!arr || !x) return undefined;
     const nh = this.meta.hours.length;
@@ -455,14 +461,8 @@ export class Climatology extends Dataset {
     return Promise.all(
       this.monthViolinVars.map((name) => {
         const kind = this.monthViolinKind(name, linear(name));
-        const key = `${name}/${kind}`;
-        if (!this.monthViolinArr.has(key)) {
-          const v = this.variables[name][kind]!;
-          const p = this.fetchBin(v.file).then((b) => decode(b, v));
-          this.monthViolinArr.set(key, p.then((a) => (this.monthViolinDone.set(key, a), a)));
-          p.catch(() => this.monthViolinArr.delete(key)); // retried next time
-        }
-        return this.monthViolinArr.get(key)!;
+        const v = this.variables[name][kind]!;
+        return this.monthViolins.load(`${name}/${kind}`, () => this.fetchBin(v.file).then((b) => decode(b, v)));
       }),
     ).then(() => undefined);
   }
@@ -471,7 +471,7 @@ export class Climatology extends Dataset {
    * `loadMonthViolins` is done. `linear` as in `violin`. */
   monthViolin(name: string, cell: number, linear = false): { x: number[]; density: Float32Array[]; linear: boolean } | undefined { // fmt: skip
     const kind = this.monthViolinKind(name, linear);
-    const arr = this.monthViolinDone.get(`${name}/${kind}`);
+    const arr = this.monthViolins.get(`${name}/${kind}`);
     const x = this.variables[name][kind]?.x;
     if (!arr || !x) return undefined;
     const n = this.nlat * this.nlon;
@@ -484,6 +484,9 @@ export class Climatology extends Dataset {
     return this.variables[name]?.stats ?? [];
   }
 }
+
+/** The cycle shown by default. */
+export const latestCycle = (index: Index) => index.latest ?? index.cycles[0];
 
 /** Index of the value in the increasing `values` nearest to `x`. */
 export function nearestIndex(values: ArrayLike<number>, x: number): number {

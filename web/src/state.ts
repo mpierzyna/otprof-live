@@ -2,7 +2,8 @@
 // climatology #mode=clim&var=..&month=<1-12>&stat=..&period=<day|night>&z=<m>&lat=..&lon=..; log=<names>: the log₁₀ variables shown as
 // log₁₀, the others linearly (only if not the defaults; log=0: all linearly, log=1: all as log₁₀)
 
-import { Climatology, type Cycle, type Dataset, nearestIndex } from "./data";
+import type { Config } from "./config";
+import { Climatology, type Cycle, type Dataset, type Index, nearestIndex } from "./data";
 
 export type Mode = "live" | "clim";
 
@@ -10,7 +11,7 @@ export interface State {
   mode: Mode;
   cycle: string;
   variable: string;
-  lead: number; // index into the steps: the cycle's lead times, the climatology's months
+  step: number; // index into the steps: the cycle's lead times, the climatology's months
   stat: string; // statistic shown in the climatology
   period: string; // hours of the climatology's statistics: "global" (all), "day", "night"
   diurnalKind: "box" | "violin"; // plots of the climatology's diurnal cycle
@@ -46,6 +47,16 @@ export class Store {
   subscribe(f: Listener) {
     this.listeners.push(f);
   }
+}
+
+/** What the parts of the app share. */
+export interface App {
+  config: Config;
+  store: Store;
+  index: Index;
+  data: Dataset; // the dataset shown
+  clim?: Climatology; // of all hours, once loaded: also behind the forecast profile
+  firstStep: number; // first step of the time axis
 }
 
 export interface HashState {
@@ -90,8 +101,8 @@ export function parseLog(log: string, names: string[]): Record<string, boolean> 
 export function toHash(s: State, cycle: Dataset, logDefault: Record<string, boolean>): string {
   const p =
     cycle instanceof Climatology
-      ? new URLSearchParams({ mode: "clim", var: s.variable, month: String(cycle.meta.months[s.lead]), stat: s.stat })
-      : new URLSearchParams({ cycle: s.cycle, var: s.variable, t: String((cycle as Cycle).meta.lead_hours[s.lead]) }); // fmt: skip
+      ? new URLSearchParams({ mode: "clim", var: s.variable, month: String(cycle.meta.months[s.step]), stat: s.stat })
+      : new URLSearchParams({ cycle: s.cycle, var: s.variable, t: String((cycle as Cycle).meta.lead_hours[s.step]) }); // fmt: skip
   if (cycle instanceof Climatology && s.period !== "global") p.set("period", s.period);
   const names = Object.keys(logDefault);
   if (names.some((n) => (s.logValues[n] ?? logDefault[n]) !== logDefault[n]))
@@ -108,17 +119,17 @@ export function toHash(s: State, cycle: Dataset, logDefault: Record<string, bool
 export function resolve(
   h: HashState,
   cycle: Dataset,
-  fallback: { variable: string; lead: number; zi: number; cell: number; stat: string },
+  fallback: { variable: string; step: number; zi: number; cell: number; stat: string },
 ) {
   const names = Object.keys(cycle.variables);
   const cell = h.lat !== undefined && h.lon !== undefined ? cycle.nearestCell(h.lat, h.lon) : -1;
   const clim = cycle instanceof Climatology ? cycle : undefined;
-  const lead = clim
-    ? h.month !== undefined ? nearestIndex(clim.meta.months, h.month) : fallback.lead
-    : h.leadHours !== undefined ? nearestIndex((cycle as Cycle).meta.lead_hours, h.leadHours) : fallback.lead; // fmt: skip
+  const step = clim
+    ? h.month !== undefined ? nearestIndex(clim.meta.months, h.month) : fallback.step
+    : h.leadHours !== undefined ? nearestIndex((cycle as Cycle).meta.lead_hours, h.leadHours) : fallback.step; // fmt: skip
   return {
     variable: h.variable && names.includes(h.variable) ? h.variable : fallback.variable,
-    lead,
+    step,
     stat: h.stat && clim?.meta.stats.includes(h.stat) ? h.stat : fallback.stat,
     zi: h.z !== undefined && cycle.nz ? nearestIndex(cycle.z, h.z) : fallback.zi,
     cell: cell >= 0 ? cell : fallback.cell,

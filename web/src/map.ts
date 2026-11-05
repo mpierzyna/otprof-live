@@ -25,7 +25,7 @@ export class MapView {
   private pixCell = new Int32Array(0); // canvas pixel -> cell, -1 outside
   private latE: number[] = [];
   private lonE: number[] = [];
-  private cycle?: Dataset;
+  private data?: Dataset;
   private ready: Promise<void>;
   private padding: number;
 
@@ -113,23 +113,23 @@ export class MapView {
 
   /** Valid cell at (lon, lat), or -1. */
   cellAt(lon: number, lat: number): number {
-    if (!this.cycle) return -1;
+    if (!this.data) return -1;
     const i = bin(this.latE, lat);
     const j = bin(this.lonE, lon);
     if (i < 0 || j < 0) return -1;
-    const cell = i * this.cycle.nlon + j;
-    return this.cycle.valid[cell] ? cell : -1;
+    const cell = i * this.data.nlon + j;
+    return this.data.valid[cell] ? cell : -1;
   }
 
-  async setCycle(cycle: Dataset) {
+  async setData(data: Dataset) {
     await this.ready;
-    this.cycle = cycle;
-    this.latE = edges(cycle.lat);
-    this.lonE = edges(cycle.lon);
+    this.data = data;
+    this.latE = edges(data.lat);
+    this.lonE = edges(data.lon);
     const [w, e, s, n] = [this.lonE[0], this.lonE.at(-1)!, this.latE[0], this.latE.at(-1)!];
 
     // Canvas pixels -> cells
-    const W = Math.min(2048, cycle.nlon * PX_PER_CELL);
+    const W = Math.min(2048, data.nlon * PX_PER_CELL);
     const H = Math.min(2048, Math.round((W * (mercY(n) - mercY(s))) / (rad(e) - rad(w))));
     this.canvas.width = W;
     this.canvas.height = H;
@@ -138,7 +138,7 @@ export class MapView {
     const colJ = Array.from({ length: W }, (_, c) => bin(this.lonE, w + ((c + 0.5) / W) * (e - w)));
     for (let r = 0; r < H; r++) {
       const i = bin(this.latE, invMercY(mercY(n) - ((r + 0.5) / H) * (mercY(n) - mercY(s))));
-      for (let c = 0; c < W; c++) this.pixCell[r * W + c] = i < 0 || colJ[c] < 0 ? -1 : i * cycle.nlon + colJ[c];
+      for (let c = 0; c < W; c++) this.pixCell[r * W + c] = i < 0 || colJ[c] < 0 ? -1 : i * data.nlon + colJ[c];
     }
     (this.map.getSource("field") as CanvasSource).setCoordinates([[w, n], [e, n], [e, s], [w, s]]); // fmt: skip
     (this.map.getSource("domain") as GeoJSONSource).setData(this.domainOutline());
@@ -152,7 +152,7 @@ export class MapView {
 
   /** Boundary between cells with and without data. */
   private domainOutline(): Feature<MultiLineString> {
-    const c = this.cycle!;
+    const c = this.data!;
     const ok = (i: number, j: number) => i >= 0 && j >= 0 && i < c.nlat && j < c.nlon && c.valid[i * c.nlon + j] === 1;
     const segs: [number, number][][] = [];
     const [la, lo] = [this.latE, this.lonE];
@@ -192,7 +192,7 @@ export class MapView {
   }
 
   setSelection(cell: number) {
-    const c = this.cycle;
+    const c = this.data;
     const src = this.map.getSource("selection") as GeoJSONSource | undefined;
     if (!c || !src) return;
     if (cell < 0) return src.setData({ type: "FeatureCollection", features: [] });
