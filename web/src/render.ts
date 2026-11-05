@@ -246,6 +246,7 @@ export class Renderer {
       }
       this.scheduleTimeHeight();
       this.status();
+      this.csvButton();
     });
   }
 
@@ -514,6 +515,7 @@ export class Renderer {
     newer.hidden = !(data instanceof Cycle) || data.id === latest;
     newer.title = `A newer forecast is available (${fmtCycle(latest)}): show it`;
     this.live();
+    this.csvButton();
     for (const b of $("mode-tabs").querySelectorAll("button"))
       b.setAttribute("aria-selected", String(b.dataset.mode === s.mode));
     const c = climOf(data);
@@ -529,6 +531,19 @@ export class Renderer {
         b.setAttribute("aria-pressed", String(b.dataset.stat === statFor(s.variable)));
       }
     }
+  }
+
+  /** The CSV of the profile on screen: the climatology only, usable once its month is loaded. */
+  private csvButton() {
+    const s = this.s;
+    const b = $<HTMLButtonElement>("profile-csv");
+    const c = climOf(this.data);
+    b.hidden = !c || s.cell < 0 || !this.l.profileVar(s);
+    if (b.hidden) return;
+    b.disabled = !c!.hasStep(s.step) || c!.period !== s.period;
+    b.title = b.disabled
+      ? "Loading the data of this view"
+      : "Download this profile as a CSV file: this month, point and period, the statistics shown here";
   }
 
   /** The live badge: the newest forecast run at the current hour. */

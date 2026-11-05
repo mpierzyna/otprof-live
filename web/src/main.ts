@@ -2,8 +2,8 @@ import "@fontsource-variable/inter";
 import "./style.css";
 import { loadConfig } from "./config";
 import { Climatology, Cycle, type Dataset, latestCycle, loadIndex, nearestIndex } from "./data";
-import { Downloads, fmtBytes } from "./download";
-import { climOf, fmtCycle, Labels } from "./labels";
+import { Downloads, fmtBytes, profileCsv } from "./download";
+import { climOf, fmtCycle, fmtMonth, Labels } from "./labels";
 import { currentHour, loading, PANELS, Renderer, TH_HINT } from "./render";
 import { BASE, type Mode, parseLog, parseUrl, toUrl, type ViewRequest, viewLink } from "./router";
 import { type App, resolve, type State, Store } from "./state";
@@ -194,6 +194,19 @@ async function main() {
       "The climatology of the whole domain as NetCDF: the monthly statistics (global, day, night) and the diurnal cycle per month, of Cₙ², r₀ and σᵢ².",
       c.meta.downloads.map(({ label, file, bytes }) => ({ url: new URL(file, c.base).href, file, label: `${label} (${fmtBytes(bytes)})` })), // fmt: skip
     );
+  });
+  // The profile on screen, made in the browser
+  $("profile-csv").addEventListener("click", () => {
+    const c = climOf(app.data);
+    const s = st();
+    const name = labels.profileVar(s);
+    const csv = c && name ? profileCsv(c, name, s.step, s.cell) : undefined;
+    if (!c || !csv) return;
+    const [lat, lon] = [c.lat[Math.floor(s.cell / c.nlon)], c.lon[s.cell % c.nlon]];
+    const month = String(c.meta.months[s.step]).padStart(2, "0");
+    const file = `otprof-clim_${name.replace(/^l/, "")}_lat${lat.toFixed(2)}_lon${lon.toFixed(2)}_m${month}_${c.period}_EXPERIMENTAL.csv`; // fmt: skip
+    const what = `The Cₙ² profile at ${labels.cellLabel(s.cell)} in ${fmtMonth(c.times[s.step])} (${labels.periodLabel(c)}) as a CSV file, with the statistics shown here. All statistics, at a higher precision: the NetCDF files of the climatology.`; // fmt: skip
+    downloads.ask(what, [{ url: downloads.textUrl(csv, "text/csv"), file, label: "Download" }]);
   });
   const fillCycles = () => cycleSelect.replaceChildren(...app.index.cycles.map((id) => new Option(fmtCycle(id), id)));
   fillCycles();
