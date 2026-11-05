@@ -205,7 +205,7 @@ async function main() {
     const [lat, lon] = [c.lat[Math.floor(s.cell / c.nlon)], c.lon[s.cell % c.nlon]];
     const month = String(c.meta.months[s.step]).padStart(2, "0");
     const file = `otprof-clim_${name.replace(/^l/, "")}_lat${lat.toFixed(2)}_lon${lon.toFixed(2)}_m${month}_${c.period}_EXPERIMENTAL.csv`; // fmt: skip
-    const what = `The Cₙ² profile at ${labels.cellLabel(s.cell)} in ${fmtMonth(c.times[s.step])} (${labels.periodLabel(c)}) as a CSV file, with the statistics shown here. All statistics, at a higher precision: the NetCDF files of the climatology.`; // fmt: skip
+    const what = `The Cₙ² profile at ${labels.cellLabel(s.cell)} in ${fmtMonth(c.times[s.step])}${labels.periodLabel(c) && ` (${labels.periodLabel(c)})`} as a CSV file, with the statistics shown here. All statistics, at a higher precision: the NetCDF files of the climatology.`; // fmt: skip
     downloads.ask(what, [{ url: downloads.textUrl(csv, "text/csv"), file, label: "Download" }]);
   });
   const fillCycles = () => cycleSelect.replaceChildren(...app.index.cycles.map((id) => new Option(fmtCycle(id), id)));
